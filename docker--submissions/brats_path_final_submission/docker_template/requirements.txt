@@ -1,0 +1,38 @@
+# ADAPT: Add project-specific Python dependencies here.
+# Keep this small for challenge submission images. Do not add training-only
+# packages unless inference needs them.
+#
+# The PyTorch Docker base image already provides torch/torchvision.
+
+# Minimal dependencies used by the template scaffold (pinned per the kit's
+# own requirements.txt).
+pillow==10.4.0
+webdataset==0.2.100
+
+# This ensemble's actual inference-time dependencies:
+# IMPORTANT: timm==1.0.9 (the previously-pinned version) does NOT support
+# the "local-dir:" model-loading scheme used in src/brats_path_extract.py --
+# confirmed directly: its timm.models._factory.parse_model_name() only
+# accepts schemes ('', 'timm', 'hf-hub'), so "local-dir:" raises a bare
+# AssertionError at container runtime. Checked every point release between
+# 1.0.9 and 1.0.28 directly (downloaded and grepped each _factory.py):
+# "local-dir:" support was added in 1.0.16 and is present through 1.0.28.
+# Pinned to 1.0.28 specifically because that's the exact version the
+# "local-dir:" fix was functionally tested against (build -> save state
+# dict -> reload via "local-dir:" -> load_state_dict -> match).
+timm==1.0.28
+
+# scipy.special.expit reproduces sklearn SGDClassifier(log_loss) probabilities
+# from exported linear margins without requiring scikit-learn at runtime.
+scipy==1.15.3
+
+# GenBio-PathFM is loaded via a vendored local model class
+# (src/genbio_pathfm_model.py), not transformers.AutoModel, so transformers
+# is no longer a dependency of this image at all.
+
+# Fitted classifier heads are exported before Docker build to a small,
+# version-neutral NumPy format (coef/intercept/classes). Runtime inference
+# therefore does not depend on scikit-learn or joblib, avoiding pickle
+# compatibility issues between the Python 3.13 training environment and
+# this Python 3.10 PyTorch/CUDA base image.
+safetensors==0.4.5

@@ -1,0 +1,17 @@
+[project]
+name = "neuropath-fml"
+version = "0.1.0"
+description = ""
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "isort>=8.0.1",
+    "numpy>=2.5.2",
+    "pandas>=3.0.5",
+    "pillow>=12.3.0",
+    "requests>=2.34.2",
+    "ruff>=0.16.3",
+    "scikit-learn>=1.9.0",
+    "tqdm>=4.70.0",
+    "webdataset>=1.0.2",
+]
