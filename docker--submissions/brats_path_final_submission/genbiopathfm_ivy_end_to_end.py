@@ -22,9 +22,9 @@ warnings.filterwarnings("ignore", category=UserWarning)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-SEED             = 42
-N_CLASSES        = 10
-CLASS_IDS        = np.arange(N_CLASSES, dtype=np.int64)
+SEED = 42
+N_CLASSES = 10
+CLASS_IDS = np.arange(N_CLASSES, dtype=np.int64)
 FOUNDATION_NAMES = ("virchow2", "hoptimus1", "genbiopathfm")
 
 SCRIPT_VERSION = (
@@ -34,7 +34,10 @@ SCRIPT_VERSION = (
 
 # ── SGD base estimator (identical to sweep's _sgd) ────────────────────────────
 
-def _sgd(alpha: float = 3e-5, loss: str = "log_loss", max_iter: int = 20) -> SGDClassifier:
+
+def _sgd(
+    alpha: float = 3e-5, loss: str = "log_loss", max_iter: int = 20
+) -> SGDClassifier:
     return SGDClassifier(
         loss=loss,
         alpha=alpha,
@@ -71,6 +74,7 @@ def _sgd(alpha: float = 3e-5, loss: str = "log_loss", max_iter: int = 20) -> SGD
 # separate data loading path is required, since the extras are already merged
 # per-foundation before heads are fit.
 
+
 def _ridge_lsqr_a10_l2_balanced() -> RidgeClassifier:
     return RidgeClassifier(
         alpha=10.0,
@@ -82,6 +86,7 @@ def _ridge_lsqr_a10_l2_balanced() -> RidgeClassifier:
 
 
 # ── Per-head probability helper (matches sweep's predict_proba_n / _chunk_head_proba) ──
+
 
 def _chunk_head_proba(model: Any, X: np.ndarray) -> np.ndarray:
     """Return [N, N_CLASSES] float32 probabilities for a single chunk head.
@@ -95,42 +100,47 @@ def _chunk_head_proba(model: Any, X: np.ndarray) -> np.ndarray:
     """
     n = int(X.shape[0])
     if hasattr(model, "predict_proba"):
-        p       = np.asarray(model.predict_proba(X), dtype=np.float32)
-        p       = np.nan_to_num(p, nan=0.0, posinf=1.0, neginf=0.0)
+        p = np.asarray(model.predict_proba(X), dtype=np.float32)
+        p = np.nan_to_num(p, nan=0.0, posinf=1.0, neginf=0.0)
         classes = getattr(model, "classes_", CLASS_IDS)
-        out     = np.zeros((n, N_CLASSES), dtype=np.float32)
+        out = np.zeros((n, N_CLASSES), dtype=np.float32)
         for j, c in enumerate(classes):
             ci = int(c)
             if 0 <= ci < N_CLASSES:
                 out[:, ci] = p[:, j]
     elif hasattr(model, "decision_function"):
-        d       = model.decision_function(X)
-        classes = getattr(model, "classes_", CLASS_IDS[:d.shape[1] if d.ndim > 1 else 2])
-        scores  = np.full((n, N_CLASSES), -20.0, dtype=np.float32)
+        d = model.decision_function(X)
+        classes = getattr(
+            model, "classes_", CLASS_IDS[: d.shape[1] if d.ndim > 1 else 2]
+        )
+        scores = np.full((n, N_CLASSES), -20.0, dtype=np.float32)
         if d.ndim == 1:
             d = np.stack([-d, d], axis=1)
         for j, c in enumerate(classes):
             ci = int(c)
             if 0 <= ci < N_CLASSES and j < d.shape[1]:
                 scores[:, ci] = d[:, j]
-        z    = scores.astype(np.float64)
-        z   -= z.max(axis=1, keepdims=True)
-        e    = np.exp(z)
-        out  = (e / np.clip(e.sum(axis=1, keepdims=True), 1e-12, None)).astype(np.float32)
+        z = scores.astype(np.float64)
+        z -= z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        out = (e / np.clip(e.sum(axis=1, keepdims=True), 1e-12, None)).astype(
+            np.float32
+        )
     else:
         pred = model.predict(X).astype(int)
-        out  = np.full((n, N_CLASSES), 1e-6, dtype=np.float32)
+        out = np.full((n, N_CLASSES), 1e-6, dtype=np.float32)
         out[np.arange(n), pred] = 1.0
 
     row_sum = out.sum(axis=1, keepdims=True)
     # Catch NaN row-sums too, not just non-positive ones.
-    bad       = ~np.isfinite(row_sum[:, 0]) | (row_sum[:, 0] <= 0)
-    out[bad]  = 1.0 / N_CLASSES
+    bad = ~np.isfinite(row_sum[:, 0]) | (row_sum[:, 0] <= 0)
+    out[bad] = 1.0 / N_CLASSES
     out[~bad] /= row_sum[~bad]
     return out
 
 
 # ── BratsPath2025ChunkedSGDEnsemble (matches sweep implementation) ────────────
+
 
 class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
     """
@@ -180,25 +190,25 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         verbose: int = 1,
         random_state: int = SEED,
     ):
-        self.base_estimator              = base_estimator
-        self.chunk_size                  = chunk_size
-        self.min_chunk_dim               = min_chunk_dim
-        self.rare_boost                  = rare_boost
-        self.rare_quantile               = rare_quantile
-        self.rare_classes                = rare_classes
-        self.calibration_fraction        = calibration_fraction
-        self.threshold_grid_size         = threshold_grid_size
-        self.threshold_passes            = threshold_passes
+        self.base_estimator = base_estimator
+        self.chunk_size = chunk_size
+        self.min_chunk_dim = min_chunk_dim
+        self.rare_boost = rare_boost
+        self.rare_quantile = rare_quantile
+        self.rare_classes = rare_classes
+        self.calibration_fraction = calibration_fraction
+        self.threshold_grid_size = threshold_grid_size
+        self.threshold_passes = threshold_passes
         self.max_train_samples_per_class = max_train_samples_per_class
-        self.use_sample_weight           = use_sample_weight
-        self.source_weights              = source_weights
-        self.source_aggregation          = source_aggregation
-        self.foundation_names            = tuple(foundation_names) if foundation_names else tuple()
-        self.foundation_label            = foundation_label
+        self.use_sample_weight = use_sample_weight
+        self.source_weights = source_weights
+        self.source_aggregation = source_aggregation
+        self.foundation_names = tuple(foundation_names) if foundation_names else tuple()
+        self.foundation_label = foundation_label
         # Mapping: source_name -> [(probe_name, estimator_prototype), ...]
-        self.probe_estimators            = probe_estimators
-        self.verbose                     = verbose
-        self.random_state                = random_state
+        self.probe_estimators = probe_estimators
+        self.verbose = verbose
+        self.random_state = random_state
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -215,7 +225,9 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         if not made and int(dim) > 0:
             yield 0, int(dim)
 
-    def _new_estimator(self, seed_offset: int = 0, base_estimator: Any | None = None) -> Any:
+    def _new_estimator(
+        self, seed_offset: int = 0, base_estimator: Any | None = None
+    ) -> Any:
         """Clone an estimator prototype (defaults to self.base_estimator / SGD)
         and, if it exposes a random_state parameter, offset it deterministically
         so distinct chunk/probe heads don't share identical randomness."""
@@ -239,7 +251,9 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         Shared by both the primary (SGD) chunk heads and any additional probe
         heads (e.g. Ridge) so both paths get identical failure handling.
         """
-        clf = self._new_estimator(seed_offset=seed_offset, base_estimator=estimator_prototype)
+        clf = self._new_estimator(
+            seed_offset=seed_offset, base_estimator=estimator_prototype
+        )
         try:
             if sw is None:
                 clf.fit(Xchunk, y_source)
@@ -254,7 +268,9 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
             # (No-op for estimators, like RidgeClassifier, that lack this param.)
             params = getattr(clf, "get_params", lambda: {})()
             if params.get("early_stopping", False) and hasattr(clf, "set_params"):
-                clf = self._new_estimator(seed_offset=seed_offset, base_estimator=estimator_prototype)
+                clf = self._new_estimator(
+                    seed_offset=seed_offset, base_estimator=estimator_prototype
+                )
                 clf.set_params(early_stopping=False)
                 if sw is None:
                     clf.fit(Xchunk, y_source)
@@ -278,7 +294,7 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
     def _infer_rare_classes(self, y: np.ndarray) -> np.ndarray:
         if self.rare_classes is not None:
             return np.asarray(self.rare_classes, dtype=np.int64)
-        counts  = np.bincount(np.asarray(y, dtype=np.int64), minlength=N_CLASSES)
+        counts = np.bincount(np.asarray(y, dtype=np.int64), minlength=N_CLASSES)
         nonzero = counts[counts > 0]
         if len(nonzero) == 0:
             return np.asarray([], dtype=np.int64)
@@ -291,7 +307,7 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
             return np.arange(len(y), dtype=np.int64)
         cap = int(cap)
         rng = np.random.default_rng(int(self.random_state))
-        y   = np.asarray(y, dtype=np.int64)
+        y = np.asarray(y, dtype=np.int64)
         chosen = []
         for c in range(N_CLASSES):
             idx = np.flatnonzero(y == c)
@@ -304,7 +320,9 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
             return np.arange(len(y), dtype=np.int64)
         return np.sort(np.concatenate(chosen).astype(np.int64, copy=False))
 
-    def _split_fit_calibration(self, y: np.ndarray) -> Tuple[np.ndarray, np.ndarray | None]:
+    def _split_fit_calibration(
+        self, y: np.ndarray
+    ) -> Tuple[np.ndarray, np.ndarray | None]:
         frac = float(self.calibration_fraction)
         if not (0.0 < frac < 0.5):
             return np.arange(len(y), dtype=np.int64), None
@@ -366,14 +384,20 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
                 jobs.append((source_name, int(start), int(stop)))
 
         if not jobs:
-            raise ValueError("No chunk heads were created; check embedding dims / chunk_size.")
+            raise ValueError(
+                "No chunk heads were created; check embedding dims / chunk_size."
+            )
 
         source_rows = {name: int(len(y_by_source[name])) for name in sorted(X)}
-        iterator = tqdm(
-            jobs,
-            desc=f"fit chunk-SGD heads  n={len(jobs)}  source_rows={source_rows}",
-            leave=False,
-        ) if int(self.verbose) > 0 else jobs
+        iterator = (
+            tqdm(
+                jobs,
+                desc=f"fit chunk-SGD heads  n={len(jobs)}  source_rows={source_rows}",
+                leave=False,
+            )
+            if int(self.verbose) > 0
+            else jobs
+        )
 
         heads = []
         for seed_offset, (source_name, start, stop) in enumerate(iterator):
@@ -385,7 +409,11 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
                 else None
             )
             clf = self._fit_chunk_estimator(
-                None, Xchunk, y_source, sw, seed_offset=seed_offset,
+                None,
+                Xchunk,
+                y_source,
+                sw,
+                seed_offset=seed_offset,
             )
             heads.append((source_name, int(start), int(stop), clf))
 
@@ -401,21 +429,37 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
                 for probe_name, estimator_prototype in probes:
                     for start, stop in self._iter_chunks(dim):
                         probe_jobs.append(
-                            (probe_name, source_name, int(start), int(stop), estimator_prototype)
+                            (
+                                probe_name,
+                                source_name,
+                                int(start),
+                                int(stop),
+                                estimator_prototype,
+                            )
                         )
 
             probe_source_rows = {
                 name: source_rows[name] for name in sorted({j[1] for j in probe_jobs})
             }
-            probe_iterator = tqdm(
-                probe_jobs,
-                desc=f"fit probe heads  n={len(probe_jobs)}  source_rows={probe_source_rows}",
-                leave=False,
-            ) if int(self.verbose) > 0 else probe_jobs
+            probe_iterator = (
+                tqdm(
+                    probe_jobs,
+                    desc=f"fit probe heads  n={len(probe_jobs)}  source_rows={probe_source_rows}",
+                    leave=False,
+                )
+                if int(self.verbose) > 0
+                else probe_jobs
+            )
 
             # Large, disjoint seed space so probe heads never collide with the
             # primary heads' random_state offsets.
-            for i, (probe_name, source_name, start, stop, estimator_prototype) in enumerate(probe_iterator):
+            for i, (
+                probe_name,
+                source_name,
+                start,
+                stop,
+                estimator_prototype,
+            ) in enumerate(probe_iterator):
                 Xchunk = np.asarray(X[source_name], dtype=np.float32)[:, start:stop]
                 y_source = np.asarray(y_by_source[source_name], dtype=np.int64)
                 sw = (
@@ -424,30 +468,38 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
                     else None
                 )
                 clf = self._fit_chunk_estimator(
-                    estimator_prototype, Xchunk, y_source, sw,
+                    estimator_prototype,
+                    Xchunk,
+                    y_source,
+                    sw,
                     seed_offset=1_000_000 + i,
                 )
                 heads.append((source_name, start, stop, clf))
                 self.probe_heads_.append(
-                    {"probe_name": probe_name, "source": source_name, "start": start, "stop": stop}
+                    {
+                        "probe_name": probe_name,
+                        "source": source_name,
+                        "start": start,
+                        "stop": stop,
+                    }
                 )
 
         self.heads_ = heads
         return self
 
     def _raw_avg_proba(self, X: Mapping[str, np.ndarray]) -> np.ndarray:
-        n           = int(next(iter(X.values())).shape[0])
+        n = int(next(iter(X.values())).shape[0])
         aggregation = str(self.source_aggregation)
 
         if aggregation == "head_mean":
-            acc   = np.zeros((n, N_CLASSES), dtype=np.float32)
+            acc = np.zeros((n, N_CLASSES), dtype=np.float32)
             denom = 0.0
             for source_name, start, stop, clf in self.heads_:
                 w = max(self._source_weight(source_name), 0.0)
                 if w == 0.0:
                     continue
                 Xchunk = np.asarray(X[source_name], dtype=np.float32)[:, start:stop]
-                acc   += w * _chunk_head_proba(clf, Xchunk)
+                acc += w * _chunk_head_proba(clf, Xchunk)
                 denom += w
             acc /= max(denom, 1e-12)
             acc /= np.clip(acc.sum(axis=1, keepdims=True), 1e-12, None)
@@ -457,24 +509,24 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
             raise ValueError(f"Unknown source_aggregation={aggregation!r}")
 
         per_source_acc: Dict[str, np.ndarray] = {}
-        per_source_n:   Dict[str, int]         = {}
+        per_source_n: Dict[str, int] = {}
         for source_name, start, stop, clf in self.heads_:
             if source_name not in per_source_acc:
                 per_source_acc[source_name] = np.zeros((n, N_CLASSES), dtype=np.float32)
-                per_source_n[source_name]   = 0
+                per_source_n[source_name] = 0
             Xchunk = np.asarray(X[source_name], dtype=np.float32)[:, start:stop]
             per_source_acc[source_name] += _chunk_head_proba(clf, Xchunk)
-            per_source_n[source_name]   += 1
+            per_source_n[source_name] += 1
 
-        acc   = np.zeros((n, N_CLASSES), dtype=np.float32)
+        acc = np.zeros((n, N_CLASSES), dtype=np.float32)
         denom = 0.0
         for source_name in sorted(per_source_acc.keys()):
             w = max(self._source_weight(source_name), 0.0)
             if w == 0.0:
                 continue
-            p_src  = per_source_acc[source_name] / max(per_source_n[source_name], 1)
+            p_src = per_source_acc[source_name] / max(per_source_n[source_name], 1)
             p_src /= np.clip(p_src.sum(axis=1, keepdims=True), 1e-12, None)
-            acc   += w * p_src
+            acc += w * p_src
             denom += w
         acc /= max(denom, 1e-12)
         acc /= np.clip(acc.sum(axis=1, keepdims=True), 1e-12, None)
@@ -488,26 +540,40 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         return out
 
     @staticmethod
-    def _predict_with_thresholds(proba: np.ndarray, thresholds: np.ndarray) -> np.ndarray:
-        return (proba / np.clip(thresholds.reshape(1, -1), 1e-6, None)).argmax(axis=1).astype(np.int64)
+    def _predict_with_thresholds(
+        proba: np.ndarray, thresholds: np.ndarray
+    ) -> np.ndarray:
+        return (
+            (proba / np.clip(thresholds.reshape(1, -1), 1e-6, None))
+            .argmax(axis=1)
+            .astype(np.int64)
+        )
 
     def _optimize_thresholds(self, y_cal: np.ndarray, p_cal: np.ndarray) -> np.ndarray:
-        y_cal      = np.asarray(y_cal, dtype=np.int64)
+        y_cal = np.asarray(y_cal, dtype=np.int64)
         thresholds = np.ones(N_CLASSES, dtype=np.float32)
-        grid       = np.linspace(0.05, 2.00, int(self.threshold_grid_size), dtype=np.float32)
-        best = f1_score(y_cal, self._predict_with_thresholds(p_cal, thresholds),
-                        average="macro", zero_division=0)
+        grid = np.linspace(0.05, 2.00, int(self.threshold_grid_size), dtype=np.float32)
+        best = f1_score(
+            y_cal,
+            self._predict_with_thresholds(p_cal, thresholds),
+            average="macro",
+            zero_division=0,
+        )
         for _ in range(int(self.threshold_passes)):
             improved = False
             for c in range(N_CLASSES):
                 best_c = float(thresholds[c])
                 for t in grid:
-                    cand    = thresholds.copy()
+                    cand = thresholds.copy()
                     cand[c] = float(t)
-                    score   = f1_score(y_cal, self._predict_with_thresholds(p_cal, cand),
-                                       average="macro", zero_division=0)
+                    score = f1_score(
+                        y_cal,
+                        self._predict_with_thresholds(p_cal, cand),
+                        average="macro",
+                        zero_division=0,
+                    )
                     if score > best + 1e-12:
-                        best   = float(score)
+                        best = float(score)
                         best_c = float(t)
                         improved = True
                 thresholds[c] = best_c
@@ -544,7 +610,9 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         if not X:
             raise ValueError("X must contain at least one foundation.")
         if any(len(np.asarray(v)) != len(y) for v in X.values()):
-            raise ValueError("All aligned BraTS foundation arrays must have len(X)==len(y).")
+            raise ValueError(
+                "All aligned BraTS foundation arrays must have len(X)==len(y)."
+            )
 
         extras = dict(source_train_extras or {})
         unknown = set(extras) - set(X)
@@ -561,7 +629,9 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         if int(self.verbose) > 0 and len(pool_idx) < len(y):
             counts = np.bincount(y[pool_idx], minlength=N_CLASSES)
             nonzero = {int(c): int(n) for c, n in enumerate(counts) if n > 0}
-            print(f"[chunk-sgd] class-balanced train cap: {len(pool_idx):,}/{len(y):,}, counts={nonzero}")
+            print(
+                f"[chunk-sgd] class-balanced train cap: {len(pool_idx):,}/{len(y):,}, counts={nonzero}"
+            )
 
         y_pool = y[pool_idx]
         fit_rel, cal_rel = self._split_fit_calibration(y_pool)
@@ -629,8 +699,8 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         clean and TTA paths apply an identical decision rule to their (possibly
         averaged) raw posteriors.
         """
-        p  = self._apply_rare_boost(raw_proba)
-        p  = p / np.clip(self.thresholds_.reshape(1, -1), 1e-6, None)
+        p = self._apply_rare_boost(raw_proba)
+        p = p / np.clip(self.thresholds_.reshape(1, -1), 1e-6, None)
         p /= np.clip(p.sum(axis=1, keepdims=True), 1e-12, None)
         return p.astype(np.float32, copy=False)
 
@@ -661,8 +731,8 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
             if keep >= 1.0:
                 out[src] = a
                 continue
-            m        = rng.random(a.shape, dtype=np.float32) < keep   # bool[N, dim]
-            out[src] = (a * m) / np.float32(keep)                      # float32, expectation-preserving
+            m = rng.random(a.shape, dtype=np.float32) < keep  # bool[N, dim]
+            out[src] = (a * m) / np.float32(keep)  # float32, expectation-preserving
         return out
 
     def predict_proba_tta(
@@ -681,19 +751,19 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         heads as configured).
         """
         if int(tta_aug) <= 0:
-            return self.predict_proba(X)            # exact base config, no masking
+            return self.predict_proba(X)  # exact base config, no masking
 
         keep = float(tta_keep)
         if not (0.0 < keep <= 1.0):
             raise ValueError("tta_keep must be in (0, 1].")
 
         # Clean pass first, then masked passes; accumulate raw posteriors in f64.
-        acc      = self._raw_avg_proba(X).astype(np.float64)
+        acc = self._raw_avg_proba(X).astype(np.float64)
         n_passes = 1
-        rng      = np.random.default_rng(int(tta_seed))
+        rng = np.random.default_rng(int(tta_seed))
         for _ in range(int(tta_aug)):
-            Xm        = self._mask_bundle(X, keep, rng)
-            acc      += self._raw_avg_proba(Xm).astype(np.float64)
+            Xm = self._mask_bundle(X, keep, rng)
+            acc += self._raw_avg_proba(Xm).astype(np.float64)
             n_passes += 1
             del Xm
 
@@ -707,34 +777,41 @@ class BratsPath2025ChunkedSGDEnsemble(BaseEstimator, ClassifierMixin):
         tta_keep: float = 0.9,
         tta_seed: int = SEED,
     ) -> np.ndarray:
-        return self.predict_proba_tta(X, tta_aug, tta_keep, tta_seed).argmax(axis=1).astype(np.int64)
+        return (
+            self.predict_proba_tta(X, tta_aug, tta_keep, tta_seed)
+            .argmax(axis=1)
+            .astype(np.int64)
+        )
 
 
 # ── Data utilities ────────────────────────────────────────────────────────────
+
 
 def scrub(X: np.ndarray) -> np.ndarray:
     """Zero out rows that contain NaN or Inf (matches sweep load behaviour)."""
     bad = ~np.isfinite(X).all(axis=1)
     if bad.any():
-        n   = int(bad.sum())
+        n = int(bad.sum())
         pct = 100.0 * n / max(len(X), 1)
         print(f"  [warn] {n:,} patches ({pct:.3f}%) contain NaN/Inf — zeroing out.")
-        X      = X.copy()
+        X = X.copy()
         X[bad] = 0.0
     return X
 
 
-def load_foundation_train(root: Path, foundation: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def load_foundation_train(
+    root: Path, foundation: str
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load consolidated train embeddings for one foundation. Only y >= 0 kept."""
-    base  = root / foundation / "train"
+    base = root / foundation / "train"
     files = sorted(base.glob("patient-*/slide-*.npz"))
     if not files:
         raise RuntimeError(f"No consolidated train .npz files found under {base}")
 
     Xs, ys, names_list, patients_list = [], [], [], []
     for fp in tqdm(files, desc=f"load train/{foundation}", leave=True):
-        d    = np.load(fp, allow_pickle=True)
-        y    = d["y"].astype(np.int64)
+        d = np.load(fp, allow_pickle=True)
+        y = d["y"].astype(np.int64)
         mask = y >= 0
         if not mask.any():
             continue
@@ -744,11 +821,13 @@ def load_foundation_train(root: Path, foundation: str) -> Tuple[np.ndarray, np.n
         patients_list.extend([fp.parent.name] * int(mask.sum()))
 
     if not Xs:
-        raise RuntimeError(f"All train patches for {foundation} have y=-1; cannot train.")
+        raise RuntimeError(
+            f"All train patches for {foundation} have y=-1; cannot train."
+        )
 
-    X        = scrub(np.concatenate(Xs, axis=0))
-    y        = np.concatenate(ys, axis=0)
-    names    = np.concatenate(names_list, axis=0).astype(str)
+    X = scrub(np.concatenate(Xs, axis=0))
+    y = np.concatenate(ys, axis=0)
+    names = np.concatenate(names_list, axis=0).astype(str)
     patients = np.asarray(patients_list, dtype=object)
     return X, y, names, patients
 
@@ -762,19 +841,23 @@ def load_composite_train(
     for fn in foundation_names:
         loaded[fn] = load_foundation_train(root, fn)
         X, y, names, patients = loaded[fn]
-        print(f"  {fn}: X={X.shape}  labels={np.bincount(y, minlength=N_CLASSES).tolist()}")
+        print(
+            f"  {fn}: X={X.shape}  labels={np.bincount(y, minlength=N_CLASSES).tolist()}"
+        )
 
-    first  = foundation_names[0]
+    first = foundation_names[0]
     ref_X, ref_y, ref_names, ref_patients = loaded[first]
 
     # ── Fast path: identical patch order across all foundations ───────────────
     def same_meta(a, b):
         _, ya, na, pa = a
         _, yb, nb, pb = b
-        return (len(ya) == len(yb)
-                and np.array_equal(ya, yb)
-                and np.array_equal(na, nb)
-                and np.array_equal(pa, pb))
+        return (
+            len(ya) == len(yb)
+            and np.array_equal(ya, yb)
+            and np.array_equal(na, nb)
+            and np.array_equal(pa, pb)
+        )
 
     if all(same_meta(loaded[first], loaded[fn]) for fn in foundation_names[1:]):
         print("  [align] all foundations share the same patch order — fast path.")
@@ -787,10 +870,11 @@ def load_composite_train(
     member_maps: Dict[str, Dict[Tuple[str, str], int]] = {}
     for fn in foundation_names[1:]:
         _, _, fn_names, fn_patients = loaded[fn]
-        member_maps[fn] = {(str(p), str(n)): i
-                           for i, (p, n) in enumerate(zip(fn_patients, fn_names))}
+        member_maps[fn] = {
+            (str(p), str(n)): i for i, (p, n) in enumerate(zip(fn_patients, fn_names))
+        }
 
-    keep_ref_idx:            list = []
+    keep_ref_idx: list = []
     aligned_other_idx: Dict[str, list] = {fn: [] for fn in foundation_names[1:]}
     for i, k in enumerate(ref_keys):
         if all(k in member_maps[fn] for fn in foundation_names[1:]):
@@ -806,16 +890,16 @@ def load_composite_train(
     keep_ref_idx_arr = np.asarray(keep_ref_idx, dtype=np.int64)
     X_bundle: Dict[str, np.ndarray] = {first: ref_X[keep_ref_idx_arr]}
     for fn in foundation_names[1:]:
-        idx          = np.asarray(aligned_other_idx[fn], dtype=np.int64)
+        idx = np.asarray(aligned_other_idx[fn], dtype=np.int64)
         X_bundle[fn] = loaded[fn][0][idx]
-        y_check      = loaded[fn][1][idx]
+        y_check = loaded[fn][1][idx]
         if not np.array_equal(ref_y[keep_ref_idx_arr], y_check):
             raise RuntimeError(
                 f"Composite: labels disagree after alignment for {fn} vs {first}."
             )
 
     n_kept = len(keep_ref_idx_arr)
-    n_ref  = len(ref_y)
+    n_ref = len(ref_y)
     print(f"  [align] kept {n_kept:,}/{n_ref:,} patches from reference ({first}).")
     return (
         X_bundle,
@@ -866,7 +950,9 @@ def _row_l2_normalize(X: np.ndarray) -> np.ndarray:
     return out
 
 
-def _read_ivy_embedding_config(ivy_root: Path, expected_foundation: str) -> Dict[str, Any]:
+def _read_ivy_embedding_config(
+    ivy_root: Path, expected_foundation: str
+) -> Dict[str, Any]:
     path = ivy_root / "embedding_config.json"
     if not path.is_file():
         raise FileNotFoundError(f"Missing Ivy embedding configuration: {path}")
@@ -979,7 +1065,9 @@ def _select_independent_ivy_rows(
     """
     max_per_class = int(max_per_class)
     if max_per_class < 0:
-        raise ValueError("--ivy-max-per-class must be >= 0; 0 means all rows per class.")
+        raise ValueError(
+            "--ivy-max-per-class must be >= 0; 0 means all rows per class."
+        )
 
     source_offset = {
         "virchow2": 0,
@@ -994,7 +1082,9 @@ def _select_independent_ivy_rows(
         idx = np.flatnonzero(y == class_id).astype(np.int64, copy=False)
         available_by_class[int(class_id)] = int(len(idx))
         if len(idx) == 0:
-            raise RuntimeError(f"{source_name}: Ivy pool has no rows for class {class_id}.")
+            raise RuntimeError(
+                f"{source_name}: Ivy pool has no rows for class {class_id}."
+            )
         if max_per_class > 0:
             if len(idx) < max_per_class:
                 raise RuntimeError(
@@ -1003,7 +1093,9 @@ def _select_independent_ivy_rows(
                     "Use 0 for all rows or lower the requested cap."
                 )
             rng = np.random.default_rng(int(seed) + source_offset + int(class_id))
-            idx = rng.choice(idx, size=max_per_class, replace=False).astype(np.int64, copy=False)
+            idx = rng.choice(idx, size=max_per_class, replace=False).astype(
+                np.int64, copy=False
+            )
         selected_parts.append(idx)
         selected_by_class[int(class_id)] = int(len(idx))
 
@@ -1138,7 +1230,9 @@ def _source_artifact(foundation: str, suffix: str) -> str:
     return suffix if suffix.startswith(f"{foundation}_") else f"{foundation}_{suffix}"
 
 
-def _find_completed_stainaug_shard_groups(parts_root: Path) -> Dict[Tuple[str, str], List[Path]]:
+def _find_completed_stainaug_shard_groups(
+    parts_root: Path,
+) -> Dict[Tuple[str, str], List[Path]]:
     groups: Dict[Tuple[str, str], List[Path]] = {}
     for shard_dir in sorted(parts_root.glob("shard-*")):
         if not (shard_dir / "_SHARD_DONE.json").exists():
@@ -1149,7 +1243,9 @@ def _find_completed_stainaug_shard_groups(parts_root: Path) -> Dict[Tuple[str, s
     return groups
 
 
-def _find_consolidated_stainaug_groups(final_root: Path) -> Dict[Tuple[str, str], List[Path]]:
+def _find_consolidated_stainaug_groups(
+    final_root: Path,
+) -> Dict[Tuple[str, str], List[Path]]:
     groups: Dict[Tuple[str, str], List[Path]] = {}
     for fp in sorted(final_root.glob("patient-*/slide-*.npz")):
         key = (fp.parent.name, fp.stem)
@@ -1157,7 +1253,9 @@ def _find_consolidated_stainaug_groups(final_root: Path) -> Dict[Tuple[str, str]
     return groups
 
 
-def _load_stainaug_file_group(paths: List[Path]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _load_stainaug_file_group(
+    paths: List[Path],
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Load one (patient, slide) group and deduplicate by patch name.
 
     The stable sort + keep-last rule is the same rule used by the sweep and by
@@ -1263,10 +1361,11 @@ def _load_one_foundation_stainaug_extra(
         y_all = y_all[valid]
     X_all = scrub(X_all)
 
-    per_class = {
-        int(c): int(n)
-        for c, n in zip(*np.unique(y_all, return_counts=True))
-    } if len(y_all) else {}
+    per_class = (
+        {int(c): int(n) for c, n in zip(*np.unique(y_all, return_counts=True))}
+        if len(y_all)
+        else {}
+    )
     summary = {
         "artifact": artifact,
         "suffix": str(aug_suffix),
@@ -1362,8 +1461,12 @@ def load_independent_stainaug_extras(
             }
             continue
 
-        X_all = np.concatenate([part[0] for part in parts], axis=0).astype(np.float32, copy=False)
-        y_all = np.concatenate([part[1] for part in parts], axis=0).astype(np.int64, copy=False)
+        X_all = np.concatenate([part[0] for part in parts], axis=0).astype(
+            np.float32, copy=False
+        )
+        y_all = np.concatenate([part[1] for part in parts], axis=0).astype(
+            np.int64, copy=False
+        )
         n_before_cap = int(len(y_all))
 
         if cap > 0 and len(y_all) > cap:
@@ -1378,8 +1481,7 @@ def load_independent_stainaug_extras(
             "n_rows": int(len(y_all)),
             "rows_by_suffix": rows_by_suffix,
             "per_class_counts": {
-                int(c): int(n)
-                for c, n in zip(*np.unique(y_all, return_counts=True))
+                int(c): int(n) for c, n in zip(*np.unique(y_all, return_counts=True))
             },
             "capped_to": cap if cap > 0 else None,
         }
@@ -1417,6 +1519,7 @@ def load_independent_partial_stainaug_extras(
         max_rows_per_foundation=max_rows_per_foundation,
         seed=seed,
     )
+
 
 def _merge_extras(
     *extra_dicts: Mapping[str, Tuple[np.ndarray, np.ndarray]],
@@ -1459,9 +1562,9 @@ def load_foundation_val(
     path = root / foundation / "val" / val_subpath
     if not path.exists():
         raise FileNotFoundError(f"Val file not found: {path}")
-    d     = np.load(path, allow_pickle=True)
-    X     = scrub(d["X"].astype(np.float32))
-    y     = d["y"].astype(np.int64)
+    d = np.load(path, allow_pickle=True)
+    X = scrub(d["X"].astype(np.float32))
+    y = d["y"].astype(np.int64)
     names = d["names"].astype(str)
     return X, y, names
 
@@ -1478,7 +1581,7 @@ def load_composite_val(
         X, y, names = loaded[fn]
         print(f"  {fn} val: X={X.shape}")
 
-    first                   = foundation_names[0]
+    first = foundation_names[0]
     ref_X, ref_y, ref_names = loaded[first]
 
     # Fast path: identical order
@@ -1493,7 +1596,7 @@ def load_composite_val(
         for fn in foundation_names[1:]
     }
 
-    keep_ref_idx:            list = []
+    keep_ref_idx: list = []
     aligned_other_idx: Dict[str, list] = {fn: [] for fn in foundation_names[1:]}
     for i, n in enumerate(ref_names):
         key = str(n)
@@ -1508,11 +1611,11 @@ def load_composite_val(
     keep_ref_idx_arr = np.asarray(keep_ref_idx, dtype=np.int64)
     X_bundle: Dict[str, np.ndarray] = {first: ref_X[keep_ref_idx_arr]}
     for fn in foundation_names[1:]:
-        idx          = np.asarray(aligned_other_idx[fn], dtype=np.int64)
+        idx = np.asarray(aligned_other_idx[fn], dtype=np.int64)
         X_bundle[fn] = loaded[fn][0][idx]
 
     n_kept = len(keep_ref_idx_arr)
-    n_ref  = len(ref_names)
+    n_ref = len(ref_names)
     if n_kept < n_ref:
         print(f"  [align] val: kept {n_kept:,}/{n_ref:,} patches.")
     return X_bundle, ref_y[keep_ref_idx_arr], ref_names[keep_ref_idx_arr]
@@ -1525,6 +1628,7 @@ def load_composite_val(
 # off by default, and does not change training, TTA, val prediction, or any
 # existing output file when not invoked. It operates on the SAME `model`
 # object main() already fit -- it does not retrain or refit anything.
+
 
 def export_docker_checkpoints(
     model: "BratsPath2025ChunkedSGDEnsemble",
@@ -1567,8 +1671,16 @@ def export_docker_checkpoints(
     # itself never names classes (only numeric ids 0-9) -- double-check this
     # mapping against your own labelling convention before relying on it.
     CLASS_NAMES = {
-        0: "CT", 1: "DM", 2: "IC", 3: "LI", 4: "MP",
-        5: "NC", 6: "PL", 7: "PN", 8: "WM", 9: "NOTA",
+        0: "CT",
+        1: "DM",
+        2: "IC",
+        3: "LI",
+        4: "MP",
+        5: "NC",
+        6: "PL",
+        7: "PN",
+        8: "WM",
+        9: "NOTA",
     }
 
     head_records: List[Dict[str, Any]] = []
@@ -1578,7 +1690,11 @@ def export_docker_checkpoints(
             group = "primary"
         else:
             probe_record = model.probe_heads_[i - n_primary_heads]
-            if (probe_record["source"], probe_record["start"], probe_record["stop"]) != (source_name, start, stop):
+            if (
+                probe_record["source"],
+                probe_record["start"],
+                probe_record["stop"],
+            ) != (source_name, start, stop):
                 raise RuntimeError(
                     f"export_docker_checkpoints: probe_heads_[{i - n_primary_heads}] "
                     f"does not line up positionally with heads_[{i}] "
@@ -1589,24 +1705,29 @@ def export_docker_checkpoints(
             classifier_name = probe_record["probe_name"]
             group = "probe"
 
-        rel_path = Path("heads") / source_name / classifier_name / (
-            f"{source_name}__chunk-{start:05d}-{stop:05d}__{classifier_name}.joblib"
+        rel_path = (
+            Path("heads")
+            / source_name
+            / classifier_name
+            / (f"{source_name}__chunk-{start:05d}-{stop:05d}__{classifier_name}.joblib")
         )
         abs_path = out_dir / rel_path
         abs_path.parent.mkdir(parents=True, exist_ok=True)
         joblib.dump(clf, abs_path)
 
-        head_records.append({
-            "foundation": source_name,
-            "classifier": classifier_name,
-            "group": group,
-            "chunk_index": int(start) // int(model.chunk_size),
-            "start": int(start),
-            "stop": int(stop),
-            "dimension": int(stop - start),
-            "path": str(rel_path.as_posix()),
-            "classes": [int(c) for c in getattr(clf, "classes_", CLASS_IDS)],
-        })
+        head_records.append(
+            {
+                "foundation": source_name,
+                "classifier": classifier_name,
+                "group": group,
+                "chunk_index": int(start) // int(model.chunk_size),
+                "start": int(start),
+                "stop": int(stop),
+                "dimension": int(stop - start),
+                "path": str(rel_path.as_posix()),
+                "classes": [int(c) for c in getattr(clf, "classes_", CLASS_IDS)],
+            }
+        )
 
     manifest = {
         "schema": "brats_path_2026_docker_ckpts_v1",
@@ -1622,12 +1743,19 @@ def export_docker_checkpoints(
             "chunk_size": int(model.chunk_size),
             "min_chunk_dim": int(model.min_chunk_dim),
             "sgd": {
-                "loss": "log_loss", "alpha": 3e-5, "penalty": "l2",
-                "class_weight": "balanced", "max_iter": 20, "early_stopping": True,
+                "loss": "log_loss",
+                "alpha": 3e-5,
+                "penalty": "l2",
+                "class_weight": "balanced",
+                "max_iter": 20,
+                "early_stopping": True,
             },
             "ridge": {
-                "alpha": 10.0, "solver": "lsqr", "class_weight": "balanced",
-                "tol": 1e-2, "max_iter": 50,
+                "alpha": 10.0,
+                "solver": "lsqr",
+                "class_weight": "balanced",
+                "tol": 1e-2,
+                "max_iter": 50,
             },
             "source_aggregation": str(model.source_aggregation),
             "rare_boost": float(model.rare_boost),
@@ -1646,7 +1774,9 @@ def export_docker_checkpoints(
         },
     }
     manifest_path = out_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2, sort_keys=False) + "\n", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest, indent=2, sort_keys=False) + "\n", encoding="utf-8"
+    )
 
     print(f"\n[export] Wrote {len(head_records)} head(s) -> {heads_dir}")
     print(f"[export] Wrote manifest -> {manifest_path}")
@@ -1654,9 +1784,11 @@ def export_docker_checkpoints(
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
-    ap = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-                                 description=__doc__)
+    ap = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter, description=__doc__
+    )
     ap.add_argument(
         "--embedding-root",
         default="artifacts/embeddings_by_patient_slide",
@@ -1698,8 +1830,8 @@ def main() -> None:
         type=int,
         default=8120,
         help="Independent Ivy rows retained per supported class for EACH of Virchow2, "
-             "H-optimus-1, and GenBioPathFM. No cross-foundation UID intersection. 0 = every "
-             "available row per supported class (CT/IC/MP/NC/PN).",
+        "H-optimus-1, and GenBioPathFM. No cross-foundation UID intersection. 0 = every "
+        "available row per supported class (CT/IC/MP/NC/PN).",
     )
     ap.add_argument(
         "--ivy-seed",
@@ -1712,8 +1844,8 @@ def main() -> None:
         choices=("auto", "l2", "none"),
         default="auto",
         help="How raw Ivy features are matched to existing BraTS source features. "
-             "auto detects unit-norm BraTS sources and L2-normalizes only Ivy rows "
-             "in RAM; l2 forces that action; none leaves Ivy raw.",
+        "auto detects unit-norm BraTS sources and L2-normalizes only Ivy rows "
+        "in RAM; l2 forces that action; none leaves Ivy raw.",
     )
     ap.add_argument(
         "--disable-ivy-extras",
@@ -1725,15 +1857,15 @@ def main() -> None:
         "--stainaug-artifacts-root",
         default="artifacts",
         help="Artifacts root matching --artifacts in extract_augmented_embeddings-2.py "
-             "(that script writes under {this}/embedding_parts/<foundation>_<suffix>/<split>/).",
+        "(that script writes under {this}/embedding_parts/<foundation>_<suffix>/<split>/).",
     )
     ap.add_argument(
         "--stainaug-suffixes",
         nargs="+",
         default=("stainaug", "stainaug_local"),
         help="One or more augmentation suffixes. By default both training pools are used: "
-             "<foundation>_stainaug and <foundation>_stainaug_local. Comma-separated "
-             "values are also accepted.",
+        "<foundation>_stainaug and <foundation>_stainaug_local. Comma-separated "
+        "values are also accepted.",
     )
     ap.add_argument(
         "--stainaug-suffix",
@@ -1752,8 +1884,8 @@ def main() -> None:
         type=int,
         default=0,
         help="Cap on partial stain-aug rows used per foundation (uniform random subsample "
-             "if exceeded). 0 = use everything completed so far for that foundation, "
-             "however much or little that is.",
+        "if exceeded). 0 = use everything completed so far for that foundation, "
+        "however much or little that is.",
     )
     ap.add_argument(
         "--stainaug-seed",
@@ -1772,17 +1904,17 @@ def main() -> None:
         nargs="+",
         default=list(FOUNDATION_NAMES),
         help="Which foundations get the extra ridge_lsqr_a10_l2_balanced probe heads. "
-             f"Choose any subset of {list(FOUNDATION_NAMES)}. Comma-separated values are "
-             "also accepted (e.g. 'virchow2,hoptimus1'). Defaults to ALL foundations "
-             "(this used to be virchow2-only). Pass an empty selection or use "
-             "--disable-ridge-probe to add no probes at all.",
+        f"Choose any subset of {list(FOUNDATION_NAMES)}. Comma-separated values are "
+        "also accepted (e.g. 'virchow2,hoptimus1'). Defaults to ALL foundations "
+        "(this used to be virchow2-only). Pass an empty selection or use "
+        "--disable-ridge-probe to add no probes at all.",
     )
     ap.add_argument(
         "--disable-ridge-probe",
         action="store_true",
         help="Skip adding the extra ridge_lsqr_a10_l2_balanced probe heads entirely "
-             "(overrides --ridge-probe-foundations) and fall back to plain "
-             "chunk-SGD-only heads for every source.",
+        "(overrides --ridge-probe-foundations) and fall back to plain "
+        "chunk-SGD-only heads for every source.",
     )
     # ── TTA (test-time chunked feature masking) ───────────────────────────────
     ap.add_argument(
@@ -1796,7 +1928,7 @@ def main() -> None:
         type=float,
         default=0.9,
         help="Per-dimension keep probability for masking (mask fraction = 1 - keep). "
-             "Kept dims are rescaled by 1/keep (inverted dropout).",
+        "Kept dims are rescaled by 1/keep (inverted dropout).",
     )
     ap.add_argument(
         "--tta-seed",
@@ -1812,9 +1944,9 @@ def main() -> None:
         "--export-docker-ckpts",
         default=None,
         help="If set, after fitting, additionally export every fitted chunk head "
-             "(joblib) plus a manifest.json compatible with the BraTS-Path 2026 "
-             "Docker submission's src/ckpts/ layout, to this directory. Does not "
-             "affect training, val prediction, or any other existing output.",
+        "(joblib) plus a manifest.json compatible with the BraTS-Path 2026 "
+        "Docker submission's src/ckpts/ layout, to this directory. Does not "
+        "affect training, val prediction, or any other existing output.",
     )
     args = ap.parse_args()
 
@@ -1843,23 +1975,28 @@ def main() -> None:
                 f"expected a subset of {list(FOUNDATION_NAMES)}."
             )
         # Preserve FOUNDATION_NAMES order for stable, deterministic head ordering.
-        ridge_probe_foundations = tuple(fn for fn in FOUNDATION_NAMES if fn in requested)
+        ridge_probe_foundations = tuple(
+            fn for fn in FOUNDATION_NAMES if fn in requested
+        )
 
     embedding_root = Path(args.embedding_root)
-    out_proba      = Path(args.out_proba)
+    out_proba = Path(args.out_proba)
     out_proba.parent.mkdir(parents=True, exist_ok=True)
 
     # ── Load composite train ──────────────────────────────────────────────────
-    print(f"\n{'─'*60}")
+    print(f"\n{'─' * 60}")
     print(f"Loading composite TRAIN  foundations={list(FOUNDATION_NAMES)}")
     print(f"  root: {embedding_root}")
-    print(f"{'─'*60}")
+    print(f"{'─' * 60}")
     X_train_bundle, y_train, train_names, train_patients = load_composite_train(
-        embedding_root, FOUNDATION_NAMES,
+        embedding_root,
+        FOUNDATION_NAMES,
     )
     total_patches = int(next(iter(X_train_bundle.values())).shape[0])
     print(f"\n  Total aligned BraTS train patches : {total_patches:,}")
-    print(f"  BraTS class distribution          : {np.bincount(y_train, minlength=N_CLASSES).tolist()}")
+    print(
+        f"  BraTS class distribution          : {np.bincount(y_train, minlength=N_CLASSES).tolist()}"
+    )
     for fn, Xf in X_train_bundle.items():
         print(f"  {fn} dim = {Xf.shape[1]}")
 
@@ -1867,15 +2004,25 @@ def main() -> None:
     ivy_source_extras: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
     ivy_train_summary: Dict[str, Any] = {"skipped": True}
     if not args.disable_ivy_extras:
-        print(f"\n{'─'*60}")
-        print("Loading independent labelled Ivy GAP extras for source-specific TRAIN augmentation")
-        print(f"  virchow2 root : {Path(args.ivy_virchow2_root).expanduser().resolve()}")
-        print(f"  hoptimus1 root: {Path(args.ivy_hoptimus1_root).expanduser().resolve()}")
-        print(f"  genbiopathfm root: {Path(args.ivy_genbiopathfm_root).expanduser().resolve()}")
-        print(f"  cap/class/source: {args.ivy_max_per_class}  (0 means all rows per source)")
+        print(f"\n{'─' * 60}")
+        print(
+            "Loading independent labelled Ivy GAP extras for source-specific TRAIN augmentation"
+        )
+        print(
+            f"  virchow2 root : {Path(args.ivy_virchow2_root).expanduser().resolve()}"
+        )
+        print(
+            f"  hoptimus1 root: {Path(args.ivy_hoptimus1_root).expanduser().resolve()}"
+        )
+        print(
+            f"  genbiopathfm root: {Path(args.ivy_genbiopathfm_root).expanduser().resolve()}"
+        )
+        print(
+            f"  cap/class/source: {args.ivy_max_per_class}  (0 means all rows per source)"
+        )
         print("  pairing       : disabled (no cross-foundation patch_uid intersection)")
         print(f"  norm mode     : {args.ivy_norm_mode}")
-        print(f"{'─'*60}")
+        print(f"{'─' * 60}")
         ivy_source_extras, ivy_train_summary = load_independent_ivy_source_extras(
             X_brats=X_train_bundle,
             virchow2_root=Path(args.ivy_virchow2_root),
@@ -1890,7 +2037,9 @@ def main() -> None:
             selection = source["selection"]
             action = source["representation_matching"]["action"]
             print(f"\n  {fn} independent Ivy rows      : {selection['n_selected']:,}")
-            print(f"  {fn} selected by class          : {selection['selected_by_class']}")
+            print(
+                f"  {fn} selected by class          : {selection['selected_by_class']}"
+            )
             print(f"  {fn} representation action      : {action}")
     else:
         print("\n[skip] --disable-ivy-extras set; no Ivy GAP extras will be used.")
@@ -1899,14 +2048,18 @@ def main() -> None:
     stainaug_source_extras: Dict[str, Tuple[np.ndarray, np.ndarray]] = {}
     stainaug_summary: Dict[str, Any] = {"skipped": True}
     if not args.disable_stainaug_extras:
-        print(f"\n{'─'*60}")
+        print(f"\n{'─' * 60}")
         print("Loading independent stain-augmentation TRAIN pools")
-        print(f"  artifacts root : {Path(args.stainaug_artifacts_root).expanduser().resolve()}")
+        print(
+            f"  artifacts root : {Path(args.stainaug_artifacts_root).expanduser().resolve()}"
+        )
         print(f"  embedding root : {embedding_root.expanduser().resolve()}")
         print(f"  suffixes       : {list(stainaug_suffixes)}")
-        print(f"  foundations    : {list(FOUNDATION_NAMES)}  (independent; no parity required)")
+        print(
+            f"  foundations    : {list(FOUNDATION_NAMES)}  (independent; no parity required)"
+        )
         print("  search order   : completed shard parts, then consolidated embeddings")
-        print(f"{'─'*60}")
+        print(f"{'─' * 60}")
         stainaug_source_extras, stainaug_summary = load_independent_stainaug_extras(
             X_brats=X_train_bundle,
             foundation_names=FOUNDATION_NAMES,
@@ -1923,7 +2076,9 @@ def main() -> None:
             for fn in FOUNDATION_NAMES:
                 s = stainaug_summary["pools"][suffix]["sources"][fn]
                 if not s.get("found", False):
-                    print(f"    {fn}: 0 rows (no completed parts or consolidated files)")
+                    print(
+                        f"    {fn}: 0 rows (no completed parts or consolidated files)"
+                    )
                     continue
                 print(
                     f"    {fn}: {s['n_rows']:,} rows from {s['n_slide_files']:,} slide files "
@@ -1941,36 +2096,56 @@ def main() -> None:
             if s["n_rows"]:
                 print(f"      classes after merge/cap: {s['per_class_counts']}")
     else:
-        print("\n[skip] --disable-stainaug-extras set; no stain-augmentation extras will be used.")
+        print(
+            "\n[skip] --disable-stainaug-extras set; no stain-augmentation extras will be used."
+        )
 
     # ── Merge extras from both independent-augmentation sources per foundation ─
     combined_source_extras = _merge_extras(ivy_source_extras, stainaug_source_extras)
-    print(f"\n{'─'*60}")
+    print(f"\n{'─' * 60}")
     print("Combined per-source training extras (Ivy GAP + stainaug + stainaug_local):")
     for fn in FOUNDATION_NAMES:
-        n = int(len(combined_source_extras[fn][1])) if fn in combined_source_extras else 0
+        n = (
+            int(len(combined_source_extras[fn][1]))
+            if fn in combined_source_extras
+            else 0
+        )
         n_ivy = int(len(ivy_source_extras[fn][1])) if fn in ivy_source_extras else 0
-        n_aug = int(len(stainaug_source_extras[fn][1])) if fn in stainaug_source_extras else 0
-        by_suffix = stainaug_summary.get("sources", {}).get(fn, {}).get("rows_by_suffix", {})
-        print(f"  {fn}: total extra rows = {n:,}  (ivy={n_ivy:,} + stainaug_pools={n_aug:,}; by_suffix={by_suffix})")
-    print(f"{'─'*60}")
+        n_aug = (
+            int(len(stainaug_source_extras[fn][1]))
+            if fn in stainaug_source_extras
+            else 0
+        )
+        by_suffix = (
+            stainaug_summary.get("sources", {}).get(fn, {}).get("rows_by_suffix", {})
+        )
+        print(
+            f"  {fn}: total extra rows = {n:,}  (ivy={n_ivy:,} + stainaug_pools={n_aug:,}; by_suffix={by_suffix})"
+        )
+    print(f"{'─' * 60}")
 
     print(f"\n  Aligned BraTS train rows remain : {total_patches:,}")
-    print(f"  BraTS class distribution remains : {np.bincount(y_train, minlength=N_CLASSES).tolist()}")
+    print(
+        f"  BraTS class distribution remains : {np.bincount(y_train, minlength=N_CLASSES).tolist()}"
+    )
 
     # ── Load composite val ────────────────────────────────────────────────────
-    print(f"\n{'─'*60}")
+    print(f"\n{'─' * 60}")
     print(f"Loading composite VAL  foundations={list(FOUNDATION_NAMES)}")
-    print(f"{'─'*60}")
+    print(f"{'─' * 60}")
     X_val_bundle, y_val, val_names = load_composite_val(
-        embedding_root, FOUNDATION_NAMES, args.val_subpath,
+        embedding_root,
+        FOUNDATION_NAMES,
+        args.val_subpath,
     )
     n_val = int(next(iter(X_val_bundle.values())).shape[0])
     print(f"\n  Total aligned val patches : {n_val:,}")
     has_labels = bool(n_val > 0 and (y_val >= 0).all())
     if (y_val >= 0).any():
         uv, cv = np.unique(y_val[y_val >= 0], return_counts=True)
-        print(f"  Val class distribution    : { {int(k): int(v) for k, v in zip(uv, cv)} }")
+        print(
+            f"  Val class distribution    : { {int(k): int(v) for k, v in zip(uv, cv)} }"
+        )
     else:
         print("  Labels: all -1 (unlabelled — predictions only, no metrics)")
 
@@ -1992,25 +2167,31 @@ def main() -> None:
             probe_estimators[fn] = [
                 ("ridge_lsqr_a10_l2_balanced", _ridge_lsqr_a10_l2_balanced()),
             ]
-        print(f"\n{'─'*60}")
+        print(f"\n{'─' * 60}")
         print("Additional probe estimator enabled")
-        print("  probe   : ridge_lsqr_a10_l2_balanced "
-              "(RidgeClassifier alpha=10.0, solver=lsqr, class_weight=balanced)")
+        print(
+            "  probe   : ridge_lsqr_a10_l2_balanced "
+            "(RidgeClassifier alpha=10.0, solver=lsqr, class_weight=balanced)"
+        )
         print(f"  scope   : {list(ridge_probe_foundations)}")
-        print("  fit data: each foundation's own fit rows "
-              "(BraTS base + ivy + stainaug + stainaug_local extras, same as SGD heads)")
-        print(f"{'─'*60}")
+        print(
+            "  fit data: each foundation's own fit rows "
+            "(BraTS base + ivy + stainaug + stainaug_local extras, same as SGD heads)"
+        )
+        print(f"{'─' * 60}")
     else:
-        print("\n[skip] no ridge-probe foundations selected "
-              "(--disable-ridge-probe or empty --ridge-probe-foundations); no probe heads will be added.")
+        print(
+            "\n[skip] no ridge-probe foundations selected "
+            "(--disable-ridge-probe or empty --ridge-probe-foundations); no probe heads will be added."
+        )
 
     # ── Build model: sweep's chunksgd_a3e-5_c768_source config, plus the ─────
     #    optional Ridge probe(s) layered into the selected source bucket(s).
     model = BratsPath2025ChunkedSGDEnsemble(
         foundation_names=FOUNDATION_NAMES,
         foundation_label="composite__virchow2+hoptimus1+genbiopathfm__ivy_plus_stainaug_plus_stainaug_local_train_aug"
-                          "__plus_ridge_lsqr_a10_probe_on_"
-                          + ("+".join(ridge_probe_foundations) if ridge_probe_foundations else "none"),
+        "__plus_ridge_lsqr_a10_probe_on_"
+        + ("+".join(ridge_probe_foundations) if ridge_probe_foundations else "none"),
         base_estimator=_sgd(alpha=3e-5, loss="log_loss"),
         chunk_size=768,
         min_chunk_dim=16,
@@ -2023,7 +2204,7 @@ def main() -> None:
         max_train_samples_per_class=None,
         use_sample_weight=False,
         source_weights=None,
-        source_aggregation="source_mean",   # matches the *_source config
+        source_aggregation="source_mean",  # matches the *_source config
         probe_estimators=probe_estimators,
         verbose=-1,
         random_state=SEED,
@@ -2034,7 +2215,9 @@ def main() -> None:
     }
     n_probe_chunks = {
         source_name: {
-            probe_name: sum(1 for _ in model._iter_chunks(X_train_bundle[source_name].shape[1]))
+            probe_name: sum(
+                1 for _ in model._iter_chunks(X_train_bundle[source_name].shape[1])
+            )
             for probe_name, _ in probes
         }
         for source_name, probes in probe_estimators.items()
@@ -2042,16 +2225,18 @@ def main() -> None:
     total_heads = sum(n_chunks_per_foundation.values()) + sum(
         sum(v.values()) for v in n_probe_chunks.values()
     )
-    print(f"\n{'─'*60}")
+    print(f"\n{'─' * 60}")
     print("Training  chunksgd_a3e-5_c768_source  (source_mean aggregation)")
     print(f"  chunk_size      : {model.chunk_size}")
-    print(f"  SGD heads/source: { {fn: n for fn, n in n_chunks_per_foundation.items()} }")
+    print(
+        f"  SGD heads/source: { {fn: n for fn, n in n_chunks_per_foundation.items()} }"
+    )
     print(f"  probe heads     : {n_probe_chunks}")
     print(f"  total heads     : {total_heads}")
     print(f"  source_agg      : {model.source_aggregation}")
     print(f"  rare_boost      : {model.rare_boost}  quantile={model.rare_quantile}")
     print(f"  cal_fraction    : {model.calibration_fraction}")
-    print(f"{'─'*60}")
+    print(f"{'─' * 60}")
 
     t0 = time.time()
     model.fit(
@@ -2064,8 +2249,12 @@ def main() -> None:
     print(f"  Rare classes identified: {model.rare_classes_.tolist()}")
     print(f"  Calibrated thresholds  : {model.thresholds_.round(4).tolist()}")
     print(f"  Rows actually used per source (base + extras): {model.source_fit_rows_}")
-    print(f"  Extra rows contributed per source            : {model.source_extra_rows_}")
-    print(f"  Probe heads fitted                            : {len(model.probe_heads_)}")
+    print(
+        f"  Extra rows contributed per source            : {model.source_extra_rows_}"
+    )
+    print(
+        f"  Probe heads fitted                            : {len(model.probe_heads_)}"
+    )
     if model.probe_heads_:
         by_probe: Dict[str, int] = {}
         by_source: Dict[str, int] = {}
@@ -2083,7 +2272,9 @@ def main() -> None:
         export_docker_checkpoints(
             model=model,
             out_dir=Path(args.export_docker_ckpts),
-            foundation_dims={fn: int(X_train_bundle[fn].shape[1]) for fn in FOUNDATION_NAMES},
+            foundation_dims={
+                fn: int(X_train_bundle[fn].shape[1]) for fn in FOUNDATION_NAMES
+            },
             ivy_train_summary=ivy_train_summary,
             stainaug_summary=stainaug_summary,
             ridge_probe_foundations=ridge_probe_foundations,
@@ -2093,18 +2284,24 @@ def main() -> None:
     gc.collect()
 
     # ── Predict on val (optionally with chunked feature-masking TTA) ───────────
-    print(f"\n{'─'*60}")
+    print(f"\n{'─' * 60}")
     print("Predicting on val ...")
     if int(args.tta_aug) > 0:
-        print(f"  TTA: {args.tta_aug} masked pass(es) + 1 clean pass  "
-              f"(averaged as RAW posteriors)")
-        print(f"       keep={args.tta_keep:.3f}  mask_frac={1.0 - args.tta_keep:.3f}  "
-              f"seed={args.tta_seed}")
-        print( "       rare-boost + thresholds applied ONCE after averaging")
+        print(
+            f"  TTA: {args.tta_aug} masked pass(es) + 1 clean pass  "
+            f"(averaged as RAW posteriors)"
+        )
+        print(
+            f"       keep={args.tta_keep:.3f}  mask_frac={1.0 - args.tta_keep:.3f}  "
+            f"seed={args.tta_seed}"
+        )
+        print("       rare-boost + thresholds applied ONCE after averaging")
     else:
-        print("  TTA disabled (--tta-aug 0) → identical to chunksgd_a3e-5_c768_source"
-              " (+ ridge probe(s), if enabled)")
-    print(f"{'─'*60}")
+        print(
+            "  TTA disabled (--tta-aug 0) → identical to chunksgd_a3e-5_c768_source"
+            " (+ ridge probe(s), if enabled)"
+        )
+    print(f"{'─' * 60}")
 
     proba = model.predict_proba_tta(
         X_val_bundle,
@@ -2112,58 +2309,74 @@ def main() -> None:
         tta_keep=args.tta_keep,
         tta_seed=args.tta_seed,
     )
-    pred  = proba.argmax(axis=1).astype(np.int16)
+    pred = proba.argmax(axis=1).astype(np.int16)
 
     # Clean baseline for an in-run comparison (only meaningful when TTA is on).
     proba_clean = None
     if int(args.tta_aug) > 0:
         proba_clean = model.predict_proba(X_val_bundle)
-        pred_clean  = proba_clean.argmax(axis=1).astype(np.int16)
-        agree       = float((pred == pred_clean).mean()) * 100.0
-        print(f"\n  clean vs TTA argmax agreement: {agree:.2f}%  "
-              f"({int((pred != pred_clean).sum()):,} of {n_val:,} flipped)")
+        pred_clean = proba_clean.argmax(axis=1).astype(np.int16)
+        agree = float((pred == pred_clean).mean()) * 100.0
+        print(
+            f"\n  clean vs TTA argmax agreement: {agree:.2f}%  "
+            f"({int((pred != pred_clean).sum()):,} of {n_val:,} flipped)"
+        )
 
     pred_unique, pred_counts = np.unique(pred, return_counts=True)
-    print("\n  Predicted class distribution (TTA output):"
-          if int(args.tta_aug) > 0 else "\n  Predicted class distribution:")
+    print(
+        "\n  Predicted class distribution (TTA output):"
+        if int(args.tta_aug) > 0
+        else "\n  Predicted class distribution:"
+    )
     for cls, cnt in zip(pred_unique, pred_counts):
-        print(f"    class {int(cls):2d}: {cnt:>8,}  ({100.*cnt/max(n_val,1):.1f}%)")
+        print(
+            f"    class {int(cls):2d}: {cnt:>8,}  ({100.0 * cnt / max(n_val, 1):.1f}%)"
+        )
 
     # ── Metrics (only when val labels are available) ──────────────────────────
     if has_labels:
+
         def _report(tag: str, pr: np.ndarray) -> None:
             mcc = matthews_corrcoef(y_val, pr)
-            f1  = f1_score(y_val, pr, average="macro", zero_division=0)
+            f1 = f1_score(y_val, pr, average="macro", zero_division=0)
             acc = accuracy_score(y_val, pr)
-            print(f"    [{tag:<5}] MCC={mcc:.4f}  macro-F1={f1:.4f}  accuracy={acc:.4f}")
+            print(
+                f"    [{tag:<5}] MCC={mcc:.4f}  macro-F1={f1:.4f}  accuracy={acc:.4f}"
+            )
 
         print(f"\n  Val metrics:")
         if proba_clean is not None:
             _report("clean", proba_clean.argmax(axis=1))
-            _report("tta",   pred)
+            _report("tta", pred)
         else:
-            _report("base",  pred)
+            _report("base", pred)
 
     # ── Save outputs (the TTA result is the headline submission) ──────────────
-    out_df = pd.DataFrame({
-        "SubjectID":  val_names.astype(str),
-        "Prediction": pred.astype(int),
-    })
+    out_df = pd.DataFrame(
+        {
+            "SubjectID": val_names.astype(str),
+            "Prediction": pred.astype(int),
+        }
+    )
     out_df.to_csv(args.out_csv, index=False)
 
     np.savez(
         out_proba,
-        names = val_names.astype(object),
-        proba = proba.astype(np.float16),
-        pred  = pred,
+        names=val_names.astype(object),
+        proba=proba.astype(np.float16),
+        pred=pred,
     )
 
-    ivy_summary_path = out_proba.with_name(out_proba.stem + "_train_augmentation_summary.json")
+    ivy_summary_path = out_proba.with_name(
+        out_proba.stem + "_train_augmentation_summary.json"
+    )
     combined_summary = {
         "script_version": SCRIPT_VERSION,
         "aligned_brats_train_rows": int(total_patches),
         "source_head_fit_rows": {k: int(v) for k, v in model.source_fit_rows_.items()},
-        "source_extra_rows_total": {k: int(v) for k, v in model.source_extra_rows_.items()},
+        "source_extra_rows_total": {
+            k: int(v) for k, v in model.source_extra_rows_.items()
+        },
         "foundation_names": list(FOUNDATION_NAMES),
         "ivy_extras": ivy_train_summary,
         "stainaug_extras": stainaug_summary,
@@ -2185,8 +2398,12 @@ def main() -> None:
             "tta_aug": int(args.tta_aug),
             "tta_keep": float(args.tta_keep),
         },
-        "rare_classes_identified_after_augmentation": model.rare_classes_.astype(int).tolist(),
-        "calibrated_thresholds_after_augmentation": model.thresholds_.astype(float).tolist(),
+        "rare_classes_identified_after_augmentation": model.rare_classes_.astype(
+            int
+        ).tolist(),
+        "calibrated_thresholds_after_augmentation": model.thresholds_.astype(
+            float
+        ).tolist(),
     }
     _write_ivy_train_summary(ivy_summary_path, combined_summary)
 

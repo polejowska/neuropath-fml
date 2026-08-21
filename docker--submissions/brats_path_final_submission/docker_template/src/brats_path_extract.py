@@ -108,13 +108,21 @@ EMBEDDING_DIMS = {k: v["embedding_dim"] for k, v in FOUNDATION_SPECS.items()}
 # src/foundation_model_weights/<foundation>/.
 # "model.pth" is included because it's the canonical filename GenBio-PathFM
 # ships under on HuggingFace Hub (genbio-ai/genbio-pathfm/model.pth).
-_WEIGHT_FILENAMES = ("model.safetensors", "pytorch_model.bin", "checkpoint.pth", "model.pth")
+_WEIGHT_FILENAMES = (
+    "model.safetensors",
+    "pytorch_model.bin",
+    "checkpoint.pth",
+    "model.pth",
+)
 
 
 def auto_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
-    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+    if (
+        getattr(torch.backends, "mps", None) is not None
+        and torch.backends.mps.is_available()
+    ):
         return torch.device("mps")
     return torch.device("cpu")
 
@@ -127,7 +135,10 @@ def build_transform(foundation: str):
     return v2.Compose(
         [
             v2.ToImage(),
-            v2.Resize((spec["input_size"], spec["input_size"]), interpolation=spec["interpolation"]),
+            v2.Resize(
+                (spec["input_size"], spec["input_size"]),
+                interpolation=spec["interpolation"],
+            ),
             v2.ToDtype(torch.float, scale=True),
             v2.Normalize(mean=list(spec["mean"]), std=list(spec["std"])),
         ]
@@ -152,7 +163,12 @@ def _load_state_dict(weight_path: Path) -> Dict[str, torch.Tensor]:
     return torch.load(weight_path, map_location="cpu")
 
 
-def load_foundation(foundation: str, device: torch.device, weights_root: Path, compile_model: bool = False):
+def load_foundation(
+    foundation: str,
+    device: torch.device,
+    weights_root: Path,
+    compile_model: bool = False,
+):
     """Returns (model, transform). weights_root is
     src/foundation_model_weights/ ; each foundation's files live in its own
     subdirectory (weights_root / foundation / ...)."""
@@ -222,7 +238,9 @@ def load_foundation(foundation: str, device: torch.device, weights_root: Path, c
         model.eval()
 
     else:
-        raise ValueError(f"Unsupported foundation {foundation!r}; this offline copy only supports {sorted(FOUNDATION_SPECS)}")
+        raise ValueError(
+            f"Unsupported foundation {foundation!r}; this offline copy only supports {sorted(FOUNDATION_SPECS)}"
+        )
 
     if compile_model:
         try:
@@ -255,11 +273,15 @@ def _pool_tokens(out: Any) -> torch.Tensor:
     return out
 
 
-def extract_features(model, images: torch.Tensor, foundation: str, l2_normalize: bool = True) -> torch.Tensor:
+def extract_features(
+    model, images: torch.Tensor, foundation: str, l2_normalize: bool = True
+) -> torch.Tensor:
     """Byte-identical extraction recipe per foundation, matching the official
     model-card usage for each."""
     if foundation == "virchow2":
-        out = model(images)  # [B, 261, 1280]: CLS + 4 register tokens + 256 patch tokens
+        out = model(
+            images
+        )  # [B, 261, 1280]: CLS + 4 register tokens + 256 patch tokens
         class_token = out[:, 0]
         patch_tokens = out[:, 5:]  # skip the 4 register tokens
         emb = torch.cat([class_token, patch_tokens.mean(dim=1)], dim=1)  # [B, 2560]

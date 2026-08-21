@@ -33,8 +33,16 @@ from .webdataset_loader import build_inference_dataloader, count_shard_patches
 
 N_CLASSES = 10
 CLASS_NAMES = {
-    0: "CT", 1: "DM", 2: "IC", 3: "LI", 4: "MP",
-    5: "NC", 6: "PL", 7: "PN", 8: "WM", 9: "NOTA",
+    0: "CT",
+    1: "DM",
+    2: "IC",
+    3: "LI",
+    4: "MP",
+    5: "NC",
+    6: "PL",
+    7: "PN",
+    8: "WM",
+    9: "NOTA",
 }
 
 # How often to emit a progress log line, in batches.
@@ -86,11 +94,18 @@ def extract_foundation_embeddings(
     )
 
     print(f"[model] Loading {foundation} feature extractor.", flush=True)
-    model, transform = extract.load_foundation(foundation, device, weights_root, compile_model=False)
-    print(f"[model] {foundation} feature extractor ready on device: {device}", flush=True)
+    model, transform = extract.load_foundation(
+        foundation, device, weights_root, compile_model=False
+    )
+    print(
+        f"[model] {foundation} feature extractor ready on device: {device}", flush=True
+    )
 
     loader = build_inference_dataloader(
-        shards=shards, batch_size=batch_size, num_workers=num_workers, image_transform=transform
+        shards=shards,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        image_transform=transform,
     )
 
     keys: List[str] = []
@@ -107,7 +122,9 @@ def extract_foundation_embeddings(
                     flush=True,
                 )
             batch_images = batch_images.to(device, non_blocking=True)
-            emb = extract.extract_features(model, batch_images, foundation, l2_normalize=True)
+            emb = extract.extract_features(
+                model, batch_images, foundation, l2_normalize=True
+            )
             feats.append(emb.detach().cpu().float().numpy())
             keys.extend(str(k) for k in batch_keys)
 
@@ -116,7 +133,9 @@ def extract_foundation_embeddings(
                 elapsed = time.time() - t0
                 rate = n_done / elapsed if elapsed > 0 else 0.0
                 pct = 100.0 * n_done / max(total_patches, 1)
-                remaining = (total_patches - n_done) / rate if rate > 0 else float("inf")
+                remaining = (
+                    (total_patches - n_done) / rate if rate > 0 else float("inf")
+                )
                 print(
                     f"[data] {foundation}: extracting batch {batch_idx}/{total_batches} "
                     f"({n_done:,}/{total_patches:,} patches, {pct:.1f}%) "
@@ -125,7 +144,11 @@ def extract_foundation_embeddings(
                     flush=True,
                 )
 
-    X = np.concatenate(feats, axis=0) if feats else np.zeros((0, extract.EMBEDDING_DIMS[foundation]), dtype=np.float32)
+    X = (
+        np.concatenate(feats, axis=0)
+        if feats
+        else np.zeros((0, extract.EMBEDDING_DIMS[foundation]), dtype=np.float32)
+    )
     print(
         f"[data] {foundation}: extraction complete -- {len(keys):,} patches "
         f"in {_format_eta(time.time() - t0)}",

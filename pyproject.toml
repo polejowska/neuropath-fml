@@ -12,6 +12,8 @@ dependencies = [
     "requests>=2.34.2",
     "ruff>=0.16.3",
     "scikit-learn>=1.9.0",
+    "timm>=1.0.28",
+    "torch>=2.13.0",
     "tqdm>=4.70.0",
     "webdataset>=1.0.2",
 ]

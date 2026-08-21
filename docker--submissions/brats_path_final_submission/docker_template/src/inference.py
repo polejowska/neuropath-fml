@@ -82,7 +82,10 @@ def _preview(values: list, limit: int = 3) -> str:
 def _auto_device() -> torch.device:
     if torch.cuda.is_available():
         return torch.device("cuda")
-    if getattr(torch.backends, "mps", None) is not None and torch.backends.mps.is_available():
+    if (
+        getattr(torch.backends, "mps", None) is not None
+        and torch.backends.mps.is_available()
+    ):
         return torch.device("mps")
     return torch.device("cpu")
 
@@ -114,7 +117,9 @@ def _score_ensemble_in_row_chunks(
     """
     n_rows = int(next(iter(X_bundle.values())).shape[0])
     if chunk_rows <= 0 or n_rows <= chunk_rows:
-        return ensemble.predict_proba_tta(X_bundle, tta_aug=tta_aug, tta_keep=tta_keep, tta_seed=tta_seed)
+        return ensemble.predict_proba_tta(
+            X_bundle, tta_aug=tta_aug, tta_keep=tta_keep, tta_seed=tta_seed
+        )
 
     parts = []
     n_chunks = -(-n_rows // chunk_rows)
@@ -122,9 +127,14 @@ def _score_ensemble_in_row_chunks(
         stop = min(start + chunk_rows, n_rows)
         X_chunk = {fn: X_bundle[fn][start:stop] for fn in X_bundle}
         parts.append(
-            ensemble.predict_proba_tta(X_chunk, tta_aug=tta_aug, tta_keep=tta_keep, tta_seed=tta_seed)
+            ensemble.predict_proba_tta(
+                X_chunk, tta_aug=tta_aug, tta_keep=tta_keep, tta_seed=tta_seed
+            )
         )
-        print(f"[ensemble] scored row-chunk {i}/{n_chunks} ({stop:,}/{n_rows:,} rows)", flush=True)
+        print(
+            f"[ensemble] scored row-chunk {i}/{n_chunks} ({stop:,}/{n_rows:,} rows)",
+            flush=True,
+        )
     return np.concatenate(parts, axis=0)
 
 
@@ -157,12 +167,13 @@ def run_inference(input_dir: Path, output_dir: Path) -> Path:
     # _score_ensemble_in_row_chunks above); 0 disables chunking entirely.
     score_chunk_rows = int(os.environ.get("BRATS_PATH_SCORE_CHUNK_ROWS", "50000"))
 
-
     device = _auto_device()
     print("[inference] Step 3: selecting runtime device and configuration.", flush=True)
     print(f"[inference] Step 3 output: device={device}", flush=True)
     if device.type == "cuda":
-        print(f"[inference] CUDA device name: {torch.cuda.get_device_name(0)}", flush=True)
+        print(
+            f"[inference] CUDA device name: {torch.cuda.get_device_name(0)}", flush=True
+        )
     print(
         f"[inference] foundations={foundations}, dimensions={dimensions}, "
         f"n_heads={manifest['n_heads']}",
@@ -183,10 +194,17 @@ def run_inference(input_dir: Path, output_dir: Path) -> Path:
     reference_keys = None
 
     for i, foundation in enumerate(foundations, start=1):
-        print(f"[inference] Foundation {i}/{len(foundations)}: {foundation}", flush=True)
+        print(
+            f"[inference] Foundation {i}/{len(foundations)}: {foundation}", flush=True
+        )
 
         keys, X = deps.extract_foundation_embeddings(
-            foundation, shards, device, FOUNDATION_MODEL_DIR, batch_size=batch_size, num_workers=num_workers
+            foundation,
+            shards,
+            device,
+            FOUNDATION_MODEL_DIR,
+            batch_size=batch_size,
+            num_workers=num_workers,
         )
         expected_dim = dimensions[foundation]
         if X.shape[1] != expected_dim:
@@ -209,20 +227,37 @@ def run_inference(input_dir: Path, output_dir: Path) -> Path:
         gc.collect()
         if device.type == "cuda":
             torch.cuda.empty_cache()
-        print(f"[inference] {foundation}: done; feature-extractor model released.", flush=True)
+        print(
+            f"[inference] {foundation}: done; feature-extractor model released.",
+            flush=True,
+        )
 
     if reference_keys is None or not X_bundle:
         raise RuntimeError("No predictions were produced (no foundations processed)")
 
-    print("[inference] Step 5: loading the fitted ensemble (all heads, all foundations).", flush=True)
+    print(
+        "[inference] Step 5: loading the fitted ensemble (all heads, all foundations).",
+        flush=True,
+    )
     ensemble = ensemble_mod.load_fitted_ensemble(CHECKPOINT_DIR, manifest)
 
-    print("[inference] Step 6: scoring (source_mean aggregation + TTA, exactly as trained).", flush=True)
+    print(
+        "[inference] Step 6: scoring (source_mean aggregation + TTA, exactly as trained).",
+        flush=True,
+    )
     t_score = time.time()
     final = _score_ensemble_in_row_chunks(
-        ensemble, X_bundle, tta_aug=tta_aug, tta_keep=tta_keep, tta_seed=tta_seed, chunk_rows=score_chunk_rows,
+        ensemble,
+        X_bundle,
+        tta_aug=tta_aug,
+        tta_keep=tta_keep,
+        tta_seed=tta_seed,
+        chunk_rows=score_chunk_rows,
     )
-    print(f"[inference] Step 6 output: scored {len(reference_keys):,} rows in {time.time() - t_score:.1f}s", flush=True)
+    print(
+        f"[inference] Step 6 output: scored {len(reference_keys):,} rows in {time.time() - t_score:.1f}s",
+        flush=True,
+    )
     used = "tta" if tta_aug > 0 else "clean"
 
     prediction = final.argmax(axis=1).astype(int)
@@ -236,7 +271,10 @@ def run_inference(input_dir: Path, output_dir: Path) -> Path:
             writer.writerow([subject_id, int(pred)])
 
     counts = dict(Counter(prediction.tolist()))
-    print(f"[inference] Step 7 output: wrote {len(prediction)} prediction(s) ({used} pipeline) to {output_path}", flush=True)
+    print(
+        f"[inference] Step 7 output: wrote {len(prediction)} prediction(s) ({used} pipeline) to {output_path}",
+        flush=True,
+    )
     print(
         "[inference] Prediction label counts: "
         + ", ".join(f"{CLASS_NAMES[c]}={counts.get(c, 0):,}" for c in range(N_CLASSES)),

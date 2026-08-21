@@ -43,7 +43,9 @@ def discover_tar_shards(input_dir: str | Path) -> list[str]:
     return [str(path) for path in shard_paths]
 
 
-def build_inference_webdataset(shards: str | Iterable[str], image_transform=DEFAULT_IMAGE_TRANSFORMS):
+def build_inference_webdataset(
+    shards: str | Iterable[str], image_transform=DEFAULT_IMAGE_TRANSFORMS
+):
     """Build a non-shuffling WebDataset for inference."""
     return (
         wds.WebDataset(shards, shardshuffle=False)

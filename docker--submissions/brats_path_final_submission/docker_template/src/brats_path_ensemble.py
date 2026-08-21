@@ -105,7 +105,9 @@ def _load_numpy_linear_head(head_path: Path) -> Any:
         required = {"format_version", "kind", "coef", "intercept", "classes"}
         missing = required.difference(payload.files)
         if missing:
-            raise RuntimeError(f"{head_path}: missing packaged head fields: {sorted(missing)}")
+            raise RuntimeError(
+                f"{head_path}: missing packaged head fields: {sorted(missing)}"
+            )
 
         format_version = str(payload["format_version"].item())
         kind = str(payload["kind"].item())
@@ -134,6 +136,7 @@ def _load_numpy_linear_head(head_path: Path) -> Any:
 
 # ── Verbatim from genbiopathfm_ivy_end_to_end.py ─────────────────────────────
 
+
 def _chunk_head_proba(model: Any, X: np.ndarray) -> np.ndarray:
     """Return [N, N_CLASSES] float32 probabilities for a single chunk head.
 
@@ -146,37 +149,41 @@ def _chunk_head_proba(model: Any, X: np.ndarray) -> np.ndarray:
     """
     n = int(X.shape[0])
     if hasattr(model, "predict_proba"):
-        p       = np.asarray(model.predict_proba(X), dtype=np.float32)
-        p       = np.nan_to_num(p, nan=0.0, posinf=1.0, neginf=0.0)
+        p = np.asarray(model.predict_proba(X), dtype=np.float32)
+        p = np.nan_to_num(p, nan=0.0, posinf=1.0, neginf=0.0)
         classes = getattr(model, "classes_", CLASS_IDS)
-        out     = np.zeros((n, N_CLASSES), dtype=np.float32)
+        out = np.zeros((n, N_CLASSES), dtype=np.float32)
         for j, c in enumerate(classes):
             ci = int(c)
             if 0 <= ci < N_CLASSES:
                 out[:, ci] = p[:, j]
     elif hasattr(model, "decision_function"):
-        d       = model.decision_function(X)
-        classes = getattr(model, "classes_", CLASS_IDS[:d.shape[1] if d.ndim > 1 else 2])
-        scores  = np.full((n, N_CLASSES), -20.0, dtype=np.float32)
+        d = model.decision_function(X)
+        classes = getattr(
+            model, "classes_", CLASS_IDS[: d.shape[1] if d.ndim > 1 else 2]
+        )
+        scores = np.full((n, N_CLASSES), -20.0, dtype=np.float32)
         if d.ndim == 1:
             d = np.stack([-d, d], axis=1)
         for j, c in enumerate(classes):
             ci = int(c)
             if 0 <= ci < N_CLASSES and j < d.shape[1]:
                 scores[:, ci] = d[:, j]
-        z    = scores.astype(np.float64)
-        z   -= z.max(axis=1, keepdims=True)
-        e    = np.exp(z)
-        out  = (e / np.clip(e.sum(axis=1, keepdims=True), 1e-12, None)).astype(np.float32)
+        z = scores.astype(np.float64)
+        z -= z.max(axis=1, keepdims=True)
+        e = np.exp(z)
+        out = (e / np.clip(e.sum(axis=1, keepdims=True), 1e-12, None)).astype(
+            np.float32
+        )
     else:
         pred = model.predict(X).astype(int)
-        out  = np.full((n, N_CLASSES), 1e-6, dtype=np.float32)
+        out = np.full((n, N_CLASSES), 1e-6, dtype=np.float32)
         out[np.arange(n), pred] = 1.0
 
     row_sum = out.sum(axis=1, keepdims=True)
     # Catch NaN row-sums too, not just non-positive ones.
-    bad       = ~np.isfinite(row_sum[:, 0]) | (row_sum[:, 0] <= 0)
-    out[bad]  = 1.0 / N_CLASSES
+    bad = ~np.isfinite(row_sum[:, 0]) | (row_sum[:, 0] <= 0)
+    out[bad] = 1.0 / N_CLASSES
     out[~bad] /= row_sum[~bad]
     return out
 
@@ -217,18 +224,18 @@ class FittedChunkEnsemble:
             return 1.0
 
     def _raw_avg_proba(self, X: Mapping[str, np.ndarray]) -> np.ndarray:
-        n           = int(next(iter(X.values())).shape[0])
+        n = int(next(iter(X.values())).shape[0])
         aggregation = str(self.source_aggregation)
 
         if aggregation == "head_mean":
-            acc   = np.zeros((n, N_CLASSES), dtype=np.float32)
+            acc = np.zeros((n, N_CLASSES), dtype=np.float32)
             denom = 0.0
             for source_name, start, stop, clf in self.heads_:
                 w = max(self._source_weight(source_name), 0.0)
                 if w == 0.0:
                     continue
                 Xchunk = np.asarray(X[source_name], dtype=np.float32)[:, start:stop]
-                acc   += w * _chunk_head_proba(clf, Xchunk)
+                acc += w * _chunk_head_proba(clf, Xchunk)
                 denom += w
             acc /= max(denom, 1e-12)
             acc /= np.clip(acc.sum(axis=1, keepdims=True), 1e-12, None)
@@ -238,24 +245,24 @@ class FittedChunkEnsemble:
             raise ValueError(f"Unknown source_aggregation={aggregation!r}")
 
         per_source_acc: Dict[str, np.ndarray] = {}
-        per_source_n:   Dict[str, int]         = {}
+        per_source_n: Dict[str, int] = {}
         for source_name, start, stop, clf in self.heads_:
             if source_name not in per_source_acc:
                 per_source_acc[source_name] = np.zeros((n, N_CLASSES), dtype=np.float32)
-                per_source_n[source_name]   = 0
+                per_source_n[source_name] = 0
             Xchunk = np.asarray(X[source_name], dtype=np.float32)[:, start:stop]
             per_source_acc[source_name] += _chunk_head_proba(clf, Xchunk)
-            per_source_n[source_name]   += 1
+            per_source_n[source_name] += 1
 
-        acc   = np.zeros((n, N_CLASSES), dtype=np.float32)
+        acc = np.zeros((n, N_CLASSES), dtype=np.float32)
         denom = 0.0
         for source_name in sorted(per_source_acc.keys()):
             w = max(self._source_weight(source_name), 0.0)
             if w == 0.0:
                 continue
-            p_src  = per_source_acc[source_name] / max(per_source_n[source_name], 1)
+            p_src = per_source_acc[source_name] / max(per_source_n[source_name], 1)
             p_src /= np.clip(p_src.sum(axis=1, keepdims=True), 1e-12, None)
-            acc   += w * p_src
+            acc += w * p_src
             denom += w
         acc /= max(denom, 1e-12)
         acc /= np.clip(acc.sum(axis=1, keepdims=True), 1e-12, None)
@@ -275,8 +282,8 @@ class FittedChunkEnsemble:
         clean and TTA paths apply an identical decision rule to their (possibly
         averaged) raw posteriors.
         """
-        p  = self._apply_rare_boost(raw_proba)
-        p  = p / np.clip(self.thresholds_.reshape(1, -1), 1e-6, None)
+        p = self._apply_rare_boost(raw_proba)
+        p = p / np.clip(self.thresholds_.reshape(1, -1), 1e-6, None)
         p /= np.clip(p.sum(axis=1, keepdims=True), 1e-12, None)
         return p.astype(np.float32, copy=False)
 
@@ -305,8 +312,8 @@ class FittedChunkEnsemble:
             if keep >= 1.0:
                 out[src] = a
                 continue
-            m        = rng.random(a.shape, dtype=np.float32) < keep   # bool[N, dim]
-            out[src] = (a * m) / np.float32(keep)                      # float32, expectation-preserving
+            m = rng.random(a.shape, dtype=np.float32) < keep  # bool[N, dim]
+            out[src] = (a * m) / np.float32(keep)  # float32, expectation-preserving
         return out
 
     def predict_proba_tta(
@@ -325,19 +332,19 @@ class FittedChunkEnsemble:
         heads as configured).
         """
         if int(tta_aug) <= 0:
-            return self.predict_proba(X)            # exact base config, no masking
+            return self.predict_proba(X)  # exact base config, no masking
 
         keep = float(tta_keep)
         if not (0.0 < keep <= 1.0):
             raise ValueError("tta_keep must be in (0, 1].")
 
         # Clean pass first, then masked passes; accumulate raw posteriors in f64.
-        acc      = self._raw_avg_proba(X).astype(np.float64)
+        acc = self._raw_avg_proba(X).astype(np.float64)
         n_passes = 1
-        rng      = np.random.default_rng(int(tta_seed))
+        rng = np.random.default_rng(int(tta_seed))
         for _ in range(int(tta_aug)):
-            Xm        = self._mask_bundle(X, keep, rng)
-            acc      += self._raw_avg_proba(Xm).astype(np.float64)
+            Xm = self._mask_bundle(X, keep, rng)
+            acc += self._raw_avg_proba(Xm).astype(np.float64)
             n_passes += 1
             del Xm
 
@@ -351,7 +358,11 @@ class FittedChunkEnsemble:
         tta_keep: float = 0.9,
         tta_seed: int = 42,
     ) -> np.ndarray:
-        return self.predict_proba_tta(X, tta_aug, tta_keep, tta_seed).argmax(axis=1).astype(np.int64)
+        return (
+            self.predict_proba_tta(X, tta_aug, tta_keep, tta_seed)
+            .argmax(axis=1)
+            .astype(np.int64)
+        )
 
 
 # ── Manifest / head loading (this Docker package's own code, not vendored) ──
@@ -383,7 +394,9 @@ def foundation_dimensions(manifest: Mapping[str, Any]) -> Dict[str, int]:
     return dims
 
 
-def load_fitted_ensemble(ckpts_dir: Path, manifest: Mapping[str, Any]) -> FittedChunkEnsemble:
+def load_fitted_ensemble(
+    ckpts_dir: Path, manifest: Mapping[str, Any]
+) -> FittedChunkEnsemble:
     """Load every head listed in manifest.json and assemble a
     FittedChunkEnsemble ready to score a {foundation: embeddings} bundle,
     using the EXACT same math as the real, validated training/eval script."""
@@ -400,9 +413,14 @@ def load_fitted_ensemble(ckpts_dir: Path, manifest: Mapping[str, Any]) -> Fitted
         if not head_path.is_file():
             raise FileNotFoundError(f"Missing packaged head: {head_path}")
         clf = _load_numpy_linear_head(head_path)
-        heads.append((record["foundation"], int(record["start"]), int(record["stop"]), clf))
+        heads.append(
+            (record["foundation"], int(record["start"]), int(record["stop"]), clf)
+        )
         if i == 1 or i == manifest["n_heads"]:
-            print(f"[model] Loaded head {i}/{manifest['n_heads']}: {record['path']}", flush=True)
+            print(
+                f"[model] Loaded head {i}/{manifest['n_heads']}: {record['path']}",
+                flush=True,
+            )
 
     ensemble = FittedChunkEnsemble(
         heads=heads,

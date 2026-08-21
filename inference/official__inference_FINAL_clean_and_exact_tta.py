@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import argparse
@@ -91,9 +90,9 @@ def head_probability(model: Any, X: np.ndarray) -> np.ndarray:
         z = scores.astype(np.float64)
         z -= z.max(axis=1, keepdims=True)
         exp_z = np.exp(z)
-        out = (
-            exp_z / np.clip(exp_z.sum(axis=1, keepdims=True), 1e-12, None)
-        ).astype(np.float32)
+        out = (exp_z / np.clip(exp_z.sum(axis=1, keepdims=True), 1e-12, None)).astype(
+            np.float32
+        )
 
     else:
         pred = np.asarray(model.predict(X), dtype=np.int64)
@@ -131,8 +130,7 @@ def load_validation(
 
     if not (len(X) == len(y) == len(names)):
         raise RuntimeError(
-            f"{foundation}: X/y/names lengths differ: "
-            f"{len(X)}, {len(y)}, {len(names)}"
+            f"{foundation}: X/y/names lengths differ: {len(X)}, {len(y)}, {len(names)}"
         )
     return X, y, names
 
@@ -160,9 +158,7 @@ def foundation_dimensions(
     dimensions: dict[str, int] = {}
     for foundation in foundations:
         records = [
-            record
-            for record in manifest["heads"]
-            if record["foundation"] == foundation
+            record for record in manifest["heads"] if record["foundation"] == foundation
         ]
         if not records:
             raise RuntimeError(f"Manifest contains no heads for {foundation}")
@@ -227,11 +223,7 @@ def predict_foundation(
 ) -> tuple[np.ndarray, np.ndarray | None]:
     n_rows = len(X)
     clean_out = np.zeros((n_rows, N_CLASSES), dtype=np.float32)
-    tta_out = (
-        np.zeros((n_rows, N_CLASSES), dtype=np.float32)
-        if tta_aug > 0
-        else None
-    )
+    tta_out = np.zeros((n_rows, N_CLASSES), dtype=np.float32) if tta_aug > 0 else None
 
     loaded_heads: list[tuple[dict[str, Any], Any]] = []
     for record in foundation_heads:
@@ -279,9 +271,7 @@ def predict_foundation(
                     keep=tta_keep,
                     seed=tta_seed,
                 )
-                masked_batch = (
-                    X_batch * mask
-                ) / np.float32(tta_keep)
+                masked_batch = (X_batch * mask) / np.float32(tta_keep)
 
                 pass_sum = np.zeros((batch_rows, N_CLASSES), dtype=np.float64)
                 for record, model in loaded_heads:
@@ -350,10 +340,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--model-dir",
         type=Path,
-        default=Path(
-            "official_models/"
-            "vhg_aug_ivy14950_source_soft_full_exact_v1"
-        ),
+        default=Path("official_models/vhg_aug_ivy14950_source_soft_full_exact_v1"),
     )
     parser.add_argument(
         "--embedding-root",
@@ -442,8 +429,7 @@ def main() -> None:
 
     clean_prefix = out_dir / f"{args.output_stem}__clean"
     tta_prefix = out_dir / (
-        f"{args.output_stem}__tta-dropout"
-        f"{1.0 - args.tta_keep:g}x{tta_aug}"
+        f"{args.output_stem}__tta-dropout{1.0 - args.tta_keep:g}x{tta_aug}"
     )
     expected_paths = [
         clean_prefix.with_suffix(".csv"),
@@ -499,10 +485,7 @@ def main() -> None:
     for foundation_number, foundation in enumerate(foundations, start=1):
         log("")
         log("#" * 88)
-        log(
-            f"FOUNDATION {foundation_number}/{len(foundations)}: "
-            f"{foundation}"
-        )
+        log(f"FOUNDATION {foundation_number}/{len(foundations)}: {foundation}")
         log("#" * 88)
 
         X, y, names = load_validation(
@@ -542,14 +525,11 @@ def main() -> None:
                 reference_y[labelled],
             ):
                 raise RuntimeError(
-                    f"{foundation}: validation labels differ from "
-                    "the first foundation"
+                    f"{foundation}: validation labels differ from the first foundation"
                 )
 
         records = [
-            record
-            for record in manifest["heads"]
-            if record["foundation"] == foundation
+            record for record in manifest["heads"] if record["foundation"] == foundation
         ]
         records.sort(
             key=lambda record: (
@@ -591,11 +571,7 @@ def main() -> None:
         gc.collect()
         log(f"{foundation}: probabilities saved; embedding matrix released")
 
-    if (
-        ensemble_clean is None
-        or reference_names is None
-        or reference_y is None
-    ):
+    if ensemble_clean is None or reference_names is None or reference_y is None:
         raise RuntimeError("No predictions were produced")
 
     raw_clean = normalise_rows(
@@ -626,8 +602,7 @@ def main() -> None:
     log(
         "clean predicted counts: "
         + ", ".join(
-            f"{CLASS_NAMES[c]}={int(clean_counts[c]):,}"
-            for c in range(N_CLASSES)
+            f"{CLASS_NAMES[c]}={int(clean_counts[c]):,}" for c in range(N_CLASSES)
         )
     )
 
@@ -646,8 +621,7 @@ def main() -> None:
         "clean_csv": str(clean_csv),
         "clean_npz": str(clean_npz),
         "clean_prediction_counts": {
-            CLASS_NAMES[c]: int(clean_counts[c])
-            for c in range(N_CLASSES)
+            CLASS_NAMES[c]: int(clean_counts[c]) for c in range(N_CLASSES)
         },
         "tta_aug": int(tta_aug),
         "tta_keep": float(args.tta_keep),
@@ -676,8 +650,7 @@ def main() -> None:
         clean_pred = final_clean.argmax(axis=1)
         tta_pred = final_tta.argmax(axis=1)
         probability_difference = np.abs(
-            final_clean.astype(np.float64)
-            - final_tta.astype(np.float64)
+            final_clean.astype(np.float64) - final_tta.astype(np.float64)
         )
         flips = int(np.sum(clean_pred != tta_pred))
         tta_counts = np.bincount(tta_pred, minlength=N_CLASSES)
@@ -687,13 +660,10 @@ def main() -> None:
                 "tta_csv": str(tta_csv),
                 "tta_npz": str(tta_npz),
                 "tta_prediction_counts": {
-                    CLASS_NAMES[c]: int(tta_counts[c])
-                    for c in range(N_CLASSES)
+                    CLASS_NAMES[c]: int(tta_counts[c]) for c in range(N_CLASSES)
                 },
                 "argmax_flips": flips,
-                "argmax_agreement": float(
-                    np.mean(clean_pred == tta_pred)
-                ),
+                "argmax_agreement": float(np.mean(clean_pred == tta_pred)),
                 "mean_absolute_probability_difference": float(
                     probability_difference.mean()
                 ),
@@ -717,8 +687,7 @@ def main() -> None:
         log(
             "TTA predicted counts: "
             + ", ".join(
-                f"{CLASS_NAMES[c]}={int(tta_counts[c]):,}"
-                for c in range(N_CLASSES)
+                f"{CLASS_NAMES[c]}={int(tta_counts[c]):,}" for c in range(N_CLASSES)
             )
         )
         log(
@@ -736,9 +705,7 @@ def main() -> None:
         )
 
     out_dir.mkdir(parents=True, exist_ok=True)
-    summary_path = (
-        out_dir / f"{args.output_stem}__inference_summary.json"
-    )
+    summary_path = out_dir / f"{args.output_stem}__inference_summary.json"
     summary_path.write_text(
         json.dumps(summary, indent=2, sort_keys=True),
         encoding="utf-8",

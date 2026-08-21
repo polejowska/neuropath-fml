@@ -92,7 +92,9 @@ def _validate_shape(model: Any, expected_dim: int, path: Path) -> None:
         )
 
 
-def _self_check(model: Any, kind: str, expected_dim: int, path: Path, seed: int) -> float:
+def _self_check(
+    model: Any, kind: str, expected_dim: int, path: Path, seed: int
+) -> float:
     # Float32 mirrors the embedding chunk dtype passed by Docker inference.
     rng = np.random.default_rng(seed)
     X = rng.normal(0.0, 0.1, size=(17, expected_dim)).astype(np.float32)
@@ -175,7 +177,9 @@ def export_heads(ckpts_dir: Path) -> None:
             if str(payload["format_version"].item()) != FORMAT_VERSION:
                 raise RuntimeError(f"{out_path}: failed round-trip format validation")
             if tuple(payload["coef"].shape) != tuple(np.asarray(model.coef_).shape):
-                raise RuntimeError(f"{out_path}: failed round-trip coefficient validation")
+                raise RuntimeError(
+                    f"{out_path}: failed round-trip coefficient validation"
+                )
 
         record["source_joblib_path"] = source_rel.as_posix()
         record["path"] = out_rel.as_posix()

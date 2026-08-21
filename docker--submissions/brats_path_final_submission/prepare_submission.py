@@ -72,8 +72,10 @@ def copy_heads(model_dir: Path) -> None:
     expected = {"virchow2", "hoptimus1", "genbiopathfm"}
     got = set(manifest.get("foundations", []))
     if got != expected:
-        print(f"[warn] manifest foundations {sorted(got)} != expected {sorted(expected)}; "
-              f"src/brats_path_extract.py only implements {sorted(expected)}.")
+        print(
+            f"[warn] manifest foundations {sorted(got)} != expected {sorted(expected)}; "
+            f"src/brats_path_extract.py only implements {sorted(expected)}."
+        )
 
     CKPTS_DIR.mkdir(parents=True, exist_ok=True)
     shutil.copy2(manifest_path, CKPTS_DIR / "manifest.json")
@@ -86,7 +88,9 @@ def copy_heads(model_dir: Path) -> None:
     n_files = sum(1 for _ in dest_heads.rglob("*.joblib"))
     print(f"[ckpts] copied manifest.json + {n_files} head files -> {CKPTS_DIR}")
     if n_files != int(manifest.get("n_heads", -1)):
-        print(f"[warn] copied {n_files} .joblib files but manifest.json says n_heads={manifest.get('n_heads')}")
+        print(
+            f"[warn] copied {n_files} .joblib files but manifest.json says n_heads={manifest.get('n_heads')}"
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -144,14 +148,18 @@ def _extract_timm_state_dict(hf_id: str, dest_file: Path, **create_kwargs) -> No
     from safetensors.torch import save_file
 
     _warn_if_cache_inside_project()
-    print(f"[hf-weights] loading {hf_id} via timm (pretrained=True) to extract its state dict...")
+    print(
+        f"[hf-weights] loading {hf_id} via timm (pretrained=True) to extract its state dict..."
+    )
     model = timm.create_model(hf_id, pretrained=True, **create_kwargs)
     state_dict = model.state_dict()
     dest_file.parent.mkdir(parents=True, exist_ok=True)
     # safetensors requires contiguous tensors and cannot hold non-tensor
     # buffers; state_dict() from a timm model is all plain tensors already.
     save_file({k: v.contiguous() for k, v in state_dict.items()}, str(dest_file))
-    print(f"[hf-weights] wrote flat state dict ({len(state_dict)} tensors) -> {dest_file}")
+    print(
+        f"[hf-weights] wrote flat state dict ({len(state_dict)} tensors) -> {dest_file}"
+    )
     del model
     import gc
 
@@ -177,14 +185,15 @@ def _download_genbiopathfm_weight(dest_file: Path) -> None:
 
     _warn_if_cache_inside_project()
     repo_id = "genbio-ai/genbio-pathfm"
-    print(f"[hf-weights] downloading {repo_id}/model.pth via huggingface_hub "
-          f"(weights only -- no repo code is executed by this download)...")
+    print(
+        f"[hf-weights] downloading {repo_id}/model.pth via huggingface_hub "
+        f"(weights only -- no repo code is executed by this download)..."
+    )
     downloaded_path = hf_hub_download(repo_id=repo_id, filename="model.pth")
 
     dest_file.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(downloaded_path, dest_file)
     print(f"[hf-weights] copied {downloaded_path} -> {dest_file}")
-
 
 
 def populate_weights(force_redownload: bool) -> None:
@@ -203,31 +212,43 @@ def populate_weights(force_redownload: bool) -> None:
     hoptimus1_file = WEIGHTS_DIR / "hoptimus1" / "model.safetensors"
     hoptimus1_cfg = WEIGHTS_DIR / "hoptimus1" / "config.json"
     if hoptimus1_file.exists() and hoptimus1_cfg.exists() and not force_redownload:
-        print(f"[hf-weights] hoptimus1: {hoptimus1_file} + config.json already exist; reusing them.")
+        print(
+            f"[hf-weights] hoptimus1: {hoptimus1_file} + config.json already exist; reusing them."
+        )
     else:
         _extract_timm_state_dict(
-            "hf-hub:bioptimus/H-optimus-1", hoptimus1_file,
-            init_values=1e-5, dynamic_img_size=False,
+            "hf-hub:bioptimus/H-optimus-1",
+            hoptimus1_file,
+            init_values=1e-5,
+            dynamic_img_size=False,
         )
 
     virchow2_file = WEIGHTS_DIR / "virchow2" / "model.safetensors"
     virchow2_cfg = WEIGHTS_DIR / "virchow2" / "config.json"
     if virchow2_file.exists() and virchow2_cfg.exists() and not force_redownload:
-        print(f"[hf-weights] virchow2: {virchow2_file} + config.json already exist; reusing them.")
+        print(
+            f"[hf-weights] virchow2: {virchow2_file} + config.json already exist; reusing them."
+        )
     else:
         _extract_timm_state_dict(
-            "hf-hub:paige-ai/Virchow2", virchow2_file,
-            mlp_layer=SwiGLUPacked, act_layer=torch.nn.SiLU,
+            "hf-hub:paige-ai/Virchow2",
+            virchow2_file,
+            mlp_layer=SwiGLUPacked,
+            act_layer=torch.nn.SiLU,
         )
 
     genbiopathfm_file = WEIGHTS_DIR / "genbiopathfm" / "model.pth"
     if genbiopathfm_file.exists() and not force_redownload:
-        print(f"[hf-weights] genbiopathfm: {genbiopathfm_file} already exists; reusing it.")
+        print(
+            f"[hf-weights] genbiopathfm: {genbiopathfm_file} already exists; reusing it."
+        )
     else:
         _download_genbiopathfm_weight(genbiopathfm_file)
 
-    print("[hf-weights] done. Populated: hoptimus1, virchow2, genbiopathfm -- "
-          "all three as flat local weight files, no trust_remote_code anywhere.")
+    print(
+        "[hf-weights] done. Populated: hoptimus1, virchow2, genbiopathfm -- "
+        "all three as flat local weight files, no trust_remote_code anywhere."
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -275,13 +296,17 @@ def sample_val_shard(val_glob: str, n_samples: int, out_tar_path: Path) -> List[
     return written_keys
 
 
-def run_local_reference(sample_tar_dir: Path, out_csv: Path, batch_size: int, tta_aug: int) -> None:
+def run_local_reference(
+    sample_tar_dir: Path, out_csv: Path, batch_size: int, tta_aug: int
+) -> None:
     """Run the EXACT container code path (docker_template/src/inference.py's
     run_inference) locally against the sample tar, so the resulting CSV is a
     genuine reference to diff the container's own predictions.csv against."""
     import os
 
-    os.environ.setdefault("HF_HUB_OFFLINE", "0")  # allow local cache resolution either way
+    os.environ.setdefault(
+        "HF_HUB_OFFLINE", "0"
+    )  # allow local cache resolution either way
     os.environ["BRATS_PATH_BATCH_SIZE"] = str(batch_size)
     os.environ["BRATS_PATH_TTA_AUG"] = str(tta_aug)
 
@@ -299,23 +324,42 @@ def run_local_reference(sample_tar_dir: Path, out_csv: Path, batch_size: int, tt
 
 
 def parse_args() -> argparse.Namespace:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--model-dir", type=Path, default=None,
-                    help="Trained model directory (manifest.json + heads/). Required with --copy-heads.")
-    ap.add_argument("--copy-heads", action="store_true",
-                    help="Copy manifest.json + heads/ from --model-dir into docker_template/src/ckpts/.")
-    ap.add_argument("--populate-weights", action="store_true",
-                    help="Populate docker_template/src/foundation_model_weights/ for all 3 foundations "
-                         "(virchow2/hoptimus1 as .safetensors via timm, genbiopathfm as model.pth via huggingface_hub).")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--model-dir",
+        type=Path,
+        default=None,
+        help="Trained model directory (manifest.json + heads/). Required with --copy-heads.",
+    )
+    ap.add_argument(
+        "--copy-heads",
+        action="store_true",
+        help="Copy manifest.json + heads/ from --model-dir into docker_template/src/ckpts/.",
+    )
+    ap.add_argument(
+        "--populate-weights",
+        action="store_true",
+        help="Populate docker_template/src/foundation_model_weights/ for all 3 foundations "
+        "(virchow2/hoptimus1 as .safetensors via timm, genbiopathfm as model.pth via huggingface_hub).",
+    )
     ap.add_argument("--force-redownload", action="store_true")
-    ap.add_argument("--make-sample-tar", action="store_true",
-                    help="Sample N val patches into a small /input-style tar and run a local reference prediction.")
+    ap.add_argument(
+        "--make-sample-tar",
+        action="store_true",
+        help="Sample N val patches into a small /input-style tar and run a local reference prediction.",
+    )
     ap.add_argument("--val-glob", default="data/val-shard-*.tar")
     ap.add_argument("--n-samples", type=int, default=10)
     ap.add_argument("--out-dir", default="./test_artifacts")
     ap.add_argument("--batch-size", type=int, default=8)
-    ap.add_argument("--tta-aug", type=int, default=0,
-                    help="0 for a fast clean-only local reference; 16 to match your official TTA inference exactly.")
+    ap.add_argument(
+        "--tta-aug",
+        type=int,
+        default=0,
+        help="0 for a fast clean-only local reference; 16 to match your official TTA inference exactly.",
+    )
     return ap.parse_args()
 
 
@@ -336,12 +380,16 @@ def main() -> None:
         sample_val_shard(args.val_glob, args.n_samples, sample_tar)
         # run_inference expects a *directory* of shards, not a single file path.
         run_local_reference(
-            sample_tar.parent, out_dir / "local_reference_predictions.csv",
-            batch_size=args.batch_size, tta_aug=args.tta_aug,
+            sample_tar.parent,
+            out_dir / "local_reference_predictions.csv",
+            batch_size=args.batch_size,
+            tta_aug=args.tta_aug,
         )
 
     if not any([args.copy_heads, args.populate_weights, args.make_sample_tar]):
-        print("Nothing to do -- pass --copy-heads, --populate-weights, and/or --make-sample-tar. See --help.")
+        print(
+            "Nothing to do -- pass --copy-heads, --populate-weights, and/or --make-sample-tar. See --help."
+        )
 
 
 if __name__ == "__main__":

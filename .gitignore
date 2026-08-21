@@ -228,3 +228,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+data
+.DS_Store
+docker--submissions/brats_path_final_submission/artifacts/.DS_Store

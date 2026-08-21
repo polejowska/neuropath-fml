@@ -22,8 +22,12 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run challenge inference.")
     # ADAPT: Keep these names unless the target evaluator requires different
     # container arguments.
-    parser.add_argument("--input", required=True, help="Input directory inside the container.")
-    parser.add_argument("--output", required=True, help="Output directory inside the container.")
+    parser.add_argument(
+        "--input", required=True, help="Input directory inside the container."
+    )
+    parser.add_argument(
+        "--output", required=True, help="Output directory inside the container."
+    )
     return parser.parse_args()
 
 
